@@ -51,6 +51,8 @@ class EventType:
     RETRIEVAL_MONGO_FAILED = "retrieval.mongo.failed"
     CONTEXT_SELECTED = "context.selected"
     CONTEXT_SUFFICIENCY = "context.sufficiency"
+    # specialist seam (e.g. Milcah coherence / counter-framework research)
+    SPECIALIST_COMPLETED = "specialist.completed"
     # external research
     RESEARCH_CONSIDERED = "research.considered"
     RESEARCH_STARTED = "research.started"
