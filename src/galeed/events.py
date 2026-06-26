@@ -16,7 +16,17 @@ from datetime import datetime, timezone
 from typing import Any
 from uuid import uuid4
 
-# --- severity levels -------------------------------------------------------
+# --- schema + severity -----------------------------------------------------
+# Bump on a backwards-incompatible change to the event shape so siblings emitting
+# into a shared Galeed stream can detect/version-gate. Additive event TYPES do not
+# require a bump (the vocabulary is intentionally extensible).
+SCHEMA_VERSION = "1.0"
+
+# Standard correlation keys for cross-project joins (present on an event when they
+# apply). trace_id/session_id/request_id are first-class fields; plan_id/job_id ride
+# in metadata. Siblings should populate these so a trace can be stitched across repos.
+CORRELATION_KEYS: tuple[str, ...] = ("request_id", "session_id", "trace_id", "plan_id", "job_id")
+
 DEBUG = "debug"
 INFO = "info"
 WARNING = "warning"
@@ -24,7 +34,7 @@ ERROR = "error"
 
 
 class EventType:
-    """Documented Tirzah event vocabulary (extensible; see module docstring)."""
+    """Documented family event vocabulary (extensible; see module docstring)."""
 
     # session / message lifecycle
     SESSION_CREATED = "session.created"
@@ -104,6 +114,7 @@ class TraceEvent:
     seq: int = 0
     event_id: str = field(default_factory=new_event_id)
     timestamp: datetime = field(default_factory=_utcnow)
+    schema_version: str = SCHEMA_VERSION
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -112,3 +123,20 @@ class TraceEvent:
         if isinstance(self.timestamp, datetime):
             data["timestamp"] = self.timestamp.isoformat()
         return data
+
+
+def correlation_ids(event: "TraceEvent | dict[str, Any]") -> dict[str, str]:
+    """The standard correlation ids present on an event, for cross-project joins.
+
+    Reads trace_id/session_id/request_id from first-class fields and plan_id/job_id
+    from metadata; returns only the keys that are present (truthy). Lets any sibling
+    stitch one logical operation across repos without agreeing on a bespoke shape.
+    """
+    data = event.to_dict() if isinstance(event, TraceEvent) else (event or {})
+    meta = data.get("metadata") or {}
+    found: dict[str, str] = {}
+    for key in CORRELATION_KEYS:
+        value = data.get(key) if data.get(key) is not None else meta.get(key)
+        if value:
+            found[key] = str(value)
+    return found

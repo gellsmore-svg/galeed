@@ -12,9 +12,12 @@ Self-contained (no app-specific imports) so it can be a dependency of any projec
 
 from galeed.bus import TraceBus, get_bus
 from galeed.events import (
+    CORRELATION_KEYS,
     KNOWN_EVENT_TYPES,
+    SCHEMA_VERSION,
     EventType,
     TraceEvent,
+    correlation_ids,
     new_event_id,
     new_message_id,
     new_request_id,
@@ -36,6 +39,9 @@ from galeed.recorder import (
 __all__ = [
     "EventType",
     "KNOWN_EVENT_TYPES",
+    "SCHEMA_VERSION",
+    "CORRELATION_KEYS",
+    "correlation_ids",
     "TraceEvent",
     "TraceBus",
     "Tracer",

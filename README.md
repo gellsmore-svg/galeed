@@ -31,9 +31,17 @@ from galeed import Tracer, EventType, get_bus
 Any family project — Tirzah, Mahalath, Hoglah, Cairn, Milcah — emits its process
 telemetry through Galeed. **Mizpah** is the viewer over what Galeed records.
 
+## Schema discipline
+
+Events carry a `schema_version` (`galeed.SCHEMA_VERSION`); bump it only on a
+backwards-incompatible change to the event shape (new event *types* are additive and
+need no bump). For cross-repo joins, populate the standard `CORRELATION_KEYS`
+(`request_id`, `session_id`, `trace_id`, `plan_id`, `job_id`) — `galeed.correlation_ids(event)`
+reads them back from fields + metadata so a trace can be stitched across projects.
+
 ## Develop
 
 ```bash
-pip install -e .
+pip install -e ".[dev]"   # pytest lives in the dev extra
 pytest
 ```
