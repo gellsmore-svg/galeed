@@ -44,6 +44,7 @@ class EventType:
     PROCESS_STARTED = "process.started"
     PROCESS_COMPLETED = "process.completed"
     PROCESS_FAILED = "process.failed"
+    PROCESS_STEP = "process.step"  # generic step with no more specific type
     # retrieval
     RETRIEVAL_MONGO_STARTED = "retrieval.mongo.started"
     RETRIEVAL_MONGO_COMPLETED = "retrieval.mongo.completed"
