@@ -68,6 +68,25 @@ class EventType:
     MEMORY_UPDATE_CONSIDERED = "memory.update.considered"
     MEMORY_UPDATE_COMPLETED = "memory.update.completed"
     FEEDBACK_SUBMITTED = "feedback.submitted"
+    # background job lifecycle (e.g. the Hoglah queue). Emitters use the job's
+    # id as trace_id AND mirror it into metadata.job_id (CORRELATION_KEYS).
+    JOB_QUEUED = "job.queued"
+    JOB_STARTED = "job.started"
+    JOB_COMPLETED = "job.completed"
+    JOB_FAILED = "job.failed"
+    JOB_CANCELLED = "job.cancelled"
+    # ontology pipeline (Mahalath): trace_id = document_id / decision_log_id /
+    # proposal_id respectively.
+    DOCUMENT_INGESTED = "document.ingested"
+    DEBATE_COMPLETED = "debate.completed"
+    PROPOSAL_ACCEPTED = "proposal.accepted"
+    PROPOSAL_REJECTED = "proposal.rejected"
+    PROPOSAL_ROLLED_BACK = "proposal.rolled_back"
+    # coherence runs (Milcah): one orchestration run = one trace; snapshots
+    # trace on snapshot_id.
+    ORCHESTRATION_STARTED = "orchestration.started"
+    ORCHESTRATION_COMPLETED = "orchestration.completed"
+    SNAPSHOT_SAVED = "snapshot.saved"
 
 
 KNOWN_EVENT_TYPES: frozenset[str] = frozenset(
