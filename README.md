@@ -41,6 +41,8 @@ reads them back from fields + metadata so a trace can be stitched across project
 
 ## Develop
 
+Works the same on native Linux and WSL — stdlib-only, no platform-specific steps.
+
 ```bash
 pip install -e ".[dev]"   # pytest lives in the dev extra
 pytest
