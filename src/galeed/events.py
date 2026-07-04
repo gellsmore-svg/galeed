@@ -87,6 +87,11 @@ class EventType:
     ORCHESTRATION_STARTED = "orchestration.started"
     ORCHESTRATION_COMPLETED = "orchestration.completed"
     SNAPSHOT_SAVED = "snapshot.saved"
+    # LLM call capture (debugging spine): the full prompt/messages + output live
+    # in the `llm_calls` collection (galeed.llm_calls); the spine event carries
+    # only summary + metadata.call_id so session listings stay light.
+    LLM_CALL_COMPLETED = "llm.call.completed"
+    LLM_CALL_FAILED = "llm.call.failed"
 
 
 KNOWN_EVENT_TYPES: frozenset[str] = frozenset(

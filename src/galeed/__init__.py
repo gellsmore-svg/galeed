@@ -28,6 +28,16 @@ from galeed.feedback import (
     list_feedback,
     record_feedback,
 )
+from galeed.llm_calls import (
+    LLM_CALLS_COLLECTION,
+    CallCapture,
+    call_tree,
+    capture_llm_call,
+    get_llm_call,
+    list_llm_calls,
+    new_call_id,
+    record_llm_call,
+)
 from galeed.recorder import (
     TRACE_EVENTS_COLLECTION,
     Tracer,
@@ -57,4 +67,12 @@ __all__ = [
     "new_message_id",
     "new_request_id",
     "new_trace_id",
+    "LLM_CALLS_COLLECTION",
+    "CallCapture",
+    "call_tree",
+    "capture_llm_call",
+    "get_llm_call",
+    "list_llm_calls",
+    "new_call_id",
+    "record_llm_call",
 ]
