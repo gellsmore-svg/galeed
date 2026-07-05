@@ -33,6 +33,11 @@ classifiers = [
 # Intentionally dependency-free: the spine is pure stdlib so any project can adopt it.
 dependencies = []
 
+[project.urls]
+Homepage = "https://github.com/gellsmore-svg/galeed"
+Repository = "https://github.com/gellsmore-svg/galeed"
+Issues = "https://github.com/gellsmore-svg/galeed/issues"
+
 [project.optional-dependencies]
 dev = ["pytest>=8"]
 # The `galeed` debugging CLI (trace/sessions/events): pretty trees need rich,

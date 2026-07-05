@@ -21,10 +21,29 @@ views.**
 - **`bus`** — a process-wide in-process pub/sub (`TraceBus`) for live streaming
   (e.g. SSE to a process panel or a dev-log window).
 - **`feedback`** — lightweight feedback events tied to a trace.
+- **`llm_calls`** — the **LLM debugging layer**: one document per model call with
+  the COMPLETE input (prompt or messages list) and COMPLETE output, a human
+  `step_name`, and `parent_call_id` chains for recursive flows. Spine events stay
+  lean; the heavy payloads live here. Wrap direct calls with
+  `capture_llm_call(...)`; Hoglah records every job automatically.
 
 ```python
-from galeed import Tracer, EventType, get_bus
+from galeed import Tracer, EventType, get_bus, record_llm_call, capture_llm_call
 ```
+
+## Viewers
+
+- **`galeed trace`** (CLI, `pip install galeed[cli]`) — the clean In→Out call
+  tree for every source: chains nested, `--verbose` for the technical layer,
+  filters (`--session/--trace/--source/--step/--call/--status/--since`),
+  `--follow` live tail, `--json` export (works without the extra).
+- **`galeed sessions` / `galeed events`** — spine summaries and raw events.
+- **`galeed serve`** (`pip install galeed[web]`, default port 8785) — the HTTP
+  trace API browser viewers read: Tirzah-compatible `/api/trace/*` shapes,
+  `/api/llm-calls`, and an SSE tail. **Mizpah** points here by default.
+
+Connection: `--mongo-uri/--mongo-db` or `GALEED_MONGO_URI` / `GALEED_MONGO_DB`
+(default `mongodb://localhost:27017` / `mnemosyne_dev`).
 
 ## Who emits into it
 
