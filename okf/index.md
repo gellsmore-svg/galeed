@@ -16,6 +16,11 @@ call. Galeed *records*; Mizpah (the "watchtower") *views*.
 
 ## Map
 
+- **[Concepts](concepts/index.md)** — the spine's design rules and the LLM
+  debugging model.
+- **[Modules](modules/index.md)** — events, recorder/bus, llm_calls, feedback,
+  and the CLI/web viewers.
+
 - **events** — the documented, extensible event vocabulary (`EventType`,
   `TraceEvent`, `SCHEMA_VERSION`, `CORRELATION_KEYS`).
 - **recorder** — `Tracer` (per-request emitter: persist + bus) and the query
