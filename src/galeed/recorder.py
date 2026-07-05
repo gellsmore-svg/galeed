@@ -10,6 +10,7 @@ never raise into the request path.
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from galeed.bus import TraceBus, get_bus
@@ -23,6 +24,8 @@ from galeed.events import (
 
 TRACE_EVENTS_COLLECTION = "trace_events"
 
+logger = logging.getLogger("galeed")
+
 
 def record_event(db: Any, event: TraceEvent) -> None:
     """Best-effort persist of one event to ``trace_events`` (never raises)."""
@@ -31,7 +34,7 @@ def record_event(db: Any, event: TraceEvent) -> None:
     try:
         db[TRACE_EVENTS_COLLECTION].insert_one(event.to_dict())
     except Exception:
-        pass
+        logger.debug("trace event persistence failed (ignored)", exc_info=True)
 
 
 def list_trace_events(
@@ -50,7 +53,15 @@ def list_trace_events(
     if session_id:
         query["session_id"] = session_id
     try:
-        rows = list(db[TRACE_EVENTS_COLLECTION].find(query, {"_id": 0}))
+        cursor = db[TRACE_EVENTS_COLLECTION].find(query, {"_id": 0})
+        try:
+            # Mongo-side newest-N (re-reversed to reading order) so the full
+            # collection never loads; fakes without sort() fall back below.
+            rows = list(cursor.sort([("timestamp", -1), ("seq", -1)]).limit(int(limit or 0) or 500))
+            rows.reverse()
+            return rows
+        except (AttributeError, TypeError):
+            rows = list(cursor)
     except Exception:
         return []
     rows.sort(key=lambda row: (row.get("timestamp") or "", row.get("seq") or 0))
@@ -184,7 +195,7 @@ class Tracer:
             try:
                 self._bus.publish(event)
             except Exception:
-                pass
+                logger.debug("trace bus publish failed (ignored)", exc_info=True)
         return event
 
     # Convenience wrappers for the common status triplet.

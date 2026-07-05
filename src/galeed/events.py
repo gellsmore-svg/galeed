@@ -1,8 +1,8 @@
 """Structured trace-event vocabulary and identifiers.
 
-This is the cross-project trace/log spine. It lives in Tirzah for now but is
-deliberately self-contained (no Tirzah-specific imports) so it can be extracted
-into a shared library that MAHALATH / HOGLAH / CAIRN / MILKA also emit into.
+This is the cross-project trace/log spine — a standalone family library
+(extracted from Tirzah in 0.1.0). Tirzah, Hoglah, Mahalath, and Milcah all
+emit into it; Mizpah and the galeed CLI/serve viewers read it.
 
 The event vocabulary below is the *documented* Tirzah set. It is intentionally
 NOT a closed enum: `Tracer.emit` accepts any ``type`` string, so other sources

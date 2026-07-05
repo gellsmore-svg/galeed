@@ -83,25 +83,45 @@ def create_app(
 
         def frames():
             yield ": connected\n\n"
-            seen: set[str] = set()
+            # Watermark instead of an ever-growing seen-set: remember the newest
+            # timestamp plus only the ids AT that timestamp (ties), so memory
+            # stays bounded on long-lived streams.
+            watermark = ""
+            at_watermark: set[str] = set()
+
+            def advance(events):
+                nonlocal watermark, at_watermark
+                for event in events:
+                    ts = str(event.get("timestamp") or "")
+                    if ts > watermark:
+                        watermark = ts
+                        at_watermark = {event.get("event_id") or ""}
+                    elif ts == watermark:
+                        at_watermark.add(event.get("event_id") or "")
+
             replay_events = list_trace_events(
                 db, trace_id=trace_id, session_id=session_id, limit=200
             )
-            for event in replay_events:
-                seen.add(event.get("event_id") or "")
-                if replay:
+            advance(replay_events)
+            if replay:
+                for event in replay_events:
                     yield f"data: {json.dumps(event, default=str)}\n\n"
             while True:
                 time.sleep(poll_seconds)
                 fresh = list_trace_events(
                     db, trace_id=trace_id, session_id=session_id, limit=200
                 )
-                new = [e for e in fresh if (e.get("event_id") or "") not in seen]
+                new = [
+                    e for e in fresh
+                    if str(e.get("timestamp") or "") > watermark
+                    or (str(e.get("timestamp") or "") == watermark
+                        and (e.get("event_id") or "") not in at_watermark)
+                ]
                 if not new:
                     yield ": keepalive\n\n"
                     continue
+                advance(new)
                 for event in new:
-                    seen.add(event.get("event_id") or "")
                     yield f"data: {json.dumps(event, default=str)}\n\n"
 
         return StreamingResponse(frames(), media_type="text/event-stream")

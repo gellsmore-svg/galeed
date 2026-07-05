@@ -62,11 +62,15 @@ def record_llm_call(
     duration_ms: int | None = None,
     metadata: dict[str, Any] | None = None,
     emit_event: bool = True,
+    tracer: Any = None,
 ) -> dict[str, Any]:
     """Persist one finished LLM call (full I/O) and mirror a light spine event.
 
-    Returns the stored document (with its ``call_id``) even when persistence
-    fails — callers can keep flowing regardless.
+    Pass the request's live ``tracer`` when you have one: the spine event then
+    carries a real sequence number and shares the request's message/request ids
+    (a fresh per-call Tracer always emits seq=1). Returns the stored document
+    (with its ``call_id``) even when persistence fails — callers can keep
+    flowing regardless.
     """
     doc: dict[str, Any] = {
         "call_id": call_id or new_call_id(),
@@ -93,9 +97,10 @@ def record_llm_call(
             pass
     if emit_event:
         try:
-            tracer = Tracer(
-                trace_id=trace_id, session_id=session_id, db=db, source=source
-            )
+            if tracer is None:
+                tracer = Tracer(
+                    trace_id=trace_id, session_id=session_id, db=db, source=source
+                )
             label = step_name or (model or "llm call")
             if error:
                 tracer.emit(
@@ -230,7 +235,15 @@ def list_llm_calls(
     if since:
         query["completed_at"] = {"$gte": since}
     try:
-        rows = list(db[LLM_CALLS_COLLECTION].find(query, {"_id": 0}))
+        cursor = db[LLM_CALLS_COLLECTION].find(query, {"_id": 0})
+        try:
+            # Mongo-side: newest N, then re-reverse to reading order — avoids
+            # loading the full collection. Fakes without sort() fall back below.
+            rows = list(cursor.sort("completed_at", -1).limit(int(limit or 0) or 1000))
+            rows.reverse()
+            return [(_strip_payloads(r) if not include_payloads else r) for r in rows]
+        except (AttributeError, TypeError):
+            rows = list(cursor)
     except Exception:
         return []
     rows.sort(key=lambda row: row.get("completed_at") or "")
