@@ -66,3 +66,31 @@ Works the same on native Linux and WSL — stdlib-only, no platform-specific ste
 pip install -e ".[dev]"   # pytest lives in the dev extra
 pytest
 ```
+
+## Hook bridges for coding agents
+
+Galeed includes bridges so external coding agents (Codex CLI, Claude Code, Cursor)
+can stream their lifecycle into the family trace spine.
+
+Install the hook command (requires the cli extra for Mongo):
+
+```bash
+pip install "galeed[cli]"
+```
+
+Example Codex config (`~/.codex/config.toml`):
+
+```toml
+[hooks]
+SessionStart = ["galeed-codex-hook", "SessionStart"]
+PreToolUse   = ["galeed-codex-hook", "PreToolUse"]
+PostToolUse  = ["galeed-codex-hook", "PostToolUse"]
+Stop         = ["galeed-codex-hook", "Stop"]
+```
+
+The handler reads JSON from stdin (Codex hook payload) and emits events with
+`source="codex"` (types like `codex.sessionstart`, `codex.posttooluse`,
+`codex.tool.started`, etc.). Use the same `GALEED_MONGO_*` env vars.
+
+See the integration plan in the Noa docs for full context and phased rollout
+(Phase 0 is a minimal trace spike using a single `PostToolUse` hook).
