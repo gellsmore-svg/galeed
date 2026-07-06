@@ -242,7 +242,7 @@ def list_llm_calls(
         try:
             # Mongo-side: newest N, then re-reverse to reading order — avoids
             # loading the full collection. Fakes without sort() fall back below.
-            rows = list(cursor.sort("completed_at", -1).limit(int(limit or 0) or 1000))
+            rows = list(cursor.sort("completed_at", -1).limit(int(limit or 0) or 500))
             rows.reverse()
             return [(_strip_payloads(r) if not include_payloads else r) for r in rows]
         except (AttributeError, TypeError):
