@@ -139,9 +139,9 @@ def test_get_and_tree() -> None:
     child = record_llm_call(db, trace_id="t", session_id="s", source="m", step_name="child",
                             parent_call_id=root["call_id"],
                             completed_at="2026-07-04T10:01:00+00:00")
-    orphan = record_llm_call(db, trace_id="t", session_id="s", source="m", step_name="orphan",
-                             parent_call_id="call_not_in_batch",
-                             completed_at="2026-07-04T10:02:00+00:00")
+    record_llm_call(db, trace_id="t", session_id="s", source="m", step_name="orphan",
+                    parent_call_id="call_not_in_batch",
+                    completed_at="2026-07-04T10:02:00+00:00")
 
     assert get_llm_call(db, child["call_id"])["step_name"] == "child"
 

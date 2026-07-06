@@ -149,6 +149,7 @@ def capture_llm_call(
     model: str | None = None,
     prompt: str | None = None,
     messages: list[dict[str, Any]] | None = None,
+    tracer: Any = None,
 ) -> Iterator[CallCapture]:
     """Wrap a direct LLM call so its full I/O lands in ``llm_calls``.
 
@@ -179,6 +180,7 @@ def capture_llm_call(
             started_at=started_at,
             duration_ms=int((time.monotonic() - clock) * 1000),
             metadata=box.metadata,
+            tracer=tracer,
         )
         raise
     record_llm_call(
@@ -196,6 +198,7 @@ def capture_llm_call(
         started_at=started_at,
         duration_ms=int((time.monotonic() - clock) * 1000),
         metadata=box.metadata,
+        tracer=tracer,
     )
 
 

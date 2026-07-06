@@ -8,9 +8,9 @@ fastapi = pytest.importorskip("fastapi", reason="web extra not installed")
 
 from fastapi.testclient import TestClient  # noqa: E402
 
-from galeed import record_llm_call
-from galeed.web import create_app
-from tests.test_llm_calls import FakeDb  # reuse the $gte-aware fake
+from galeed import record_llm_call  # noqa: E402
+from galeed.web import create_app  # noqa: E402
+from tests.test_llm_calls import FakeDb  # noqa: E402
 
 
 @pytest.fixture()
