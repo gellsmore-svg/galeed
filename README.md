@@ -21,6 +21,8 @@ views.**
 - **`bus`** — a process-wide in-process pub/sub (`TraceBus`) for live streaming
   (e.g. SSE to a process panel or a dev-log window).
 - **`feedback`** — lightweight feedback events tied to a trace.
+- **`cairn`** — `emit_cairn_observation(...)`, a tiny bridge for events that
+  Cairn can analyse as human-load and agent-effectiveness evidence.
 - **`llm_calls`** — the **LLM debugging layer**: one document per model call with
   the COMPLETE input (prompt or messages list) and COMPLETE output, a human
   `step_name`, and `parent_call_id` chains for recursive flows. Spine events stay
@@ -29,6 +31,7 @@ views.**
 
 ```python
 from galeed import Tracer, EventType, get_bus, record_llm_call, capture_llm_call
+from galeed import emit_cairn_observation
 ```
 
 ## Viewers
@@ -49,6 +52,24 @@ Connection: `--mongo-uri/--mongo-db` or `GALEED_MONGO_URI` / `GALEED_MONGO_DB`
 
 Any family project — Tirzah, Mahalath, Hoglah, Cairn, Milcah — emits its process
 telemetry through Galeed. **Mizpah** is the viewer over what Galeed records.
+
+When a product wants Cairn to read an event as human-facing observation evidence,
+emit it through the Cairn bridge:
+
+```python
+emit_cairn_observation(
+    tracer,
+    kind="agent_output",
+    message="Generated recommendation without authority citation.",
+    tags=["missing_evidence"],
+    human_systems=["trust calibration", "uncertainty management"],
+    duration_ms=4200,
+)
+```
+
+This stores a normal Galeed trace event with `metadata.cairn_kind`, `tags`,
+`human_systems`, `duration_ms`, and the standard correlation ids already carried
+by the tracer.
 
 ## Schema discipline
 

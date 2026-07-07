@@ -11,6 +11,7 @@ Self-contained (no app-specific imports) so it can be a dependency of any projec
 """
 
 from galeed.bus import TraceBus, get_bus
+from galeed.cairn import CAIRN_OBSERVATION_KINDS, emit_cairn_observation
 from galeed.events import (
     CORRELATION_KEYS,
     KNOWN_EVENT_TYPES,
@@ -51,6 +52,7 @@ __all__ = [
     "KNOWN_EVENT_TYPES",
     "SCHEMA_VERSION",
     "CORRELATION_KEYS",
+    "CAIRN_OBSERVATION_KINDS",
     "correlation_ids",
     "TraceEvent",
     "TraceBus",
@@ -62,6 +64,7 @@ __all__ = [
     "list_trace_sessions",
     "record_event",
     "record_feedback",
+    "emit_cairn_observation",
     "list_feedback",
     "new_event_id",
     "new_message_id",

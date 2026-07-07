@@ -13,6 +13,8 @@ timestamp: 2026-07-05T00:00:00Z
 - **[recorder & bus](recorder-bus.md)** — `Tracer`, persistence/query helpers,
   and the in-process `TraceBus` for live streaming.
 - **[llm_calls](llm-calls.md)** — the full-fidelity debugging store and its API.
+- **[cairn](cairn.md)** — emit Cairn-compatible observation metadata into the
+  Galeed trace spine.
 - **[cli & web](cli-web.md)** — `galeed trace|sessions|events|serve` and the
   HTTP trace API.
 - **feedback** — feedback records tied to a trace (`record_feedback`,
