@@ -8,10 +8,10 @@ spine so the entire run is visible in `galeed trace` / Mizpah.
 Usage in ~/.codex/config.toml (or equivalent for Claude Code):
 
 [hooks]
-SessionStart = ["galeed-codex-hook", "session-start"]
-PreToolUse   = ["galeed-codex-hook", "pre-tool"]
-PostToolUse  = ["galeed-codex-hook", "post-tool"]
-Stop         = ["galeed-codex-hook", "stop"]
+SessionStart = ["galeed-codex-hook", "SessionStart"]
+PreToolUse   = ["galeed-codex-hook", "PreToolUse"]
+PostToolUse  = ["galeed-codex-hook", "PostToolUse"]
+Stop         = ["galeed-codex-hook", "Stop"]
 
 The handler receives the hook name as argv[1] (optional) and the full payload
 as JSON on stdin. It maps to Galeed event types with source="codex".
@@ -64,7 +64,6 @@ def _emit_event(
 ) -> None:
     """Create and record a TraceEvent (best effort)."""
     db = _get_db()
-    # Merge any additional metadata; avoid polluting top-level fields
     event = TraceEvent(
         trace_id=trace_id,
         session_id=session_id,
@@ -86,10 +85,26 @@ def _load_payload() -> dict[str, Any]:
     try:
         data = sys.stdin.read()
         if data.strip():
-            return json.loads(data)
+            payload = json.loads(data)
+            if isinstance(payload, dict):
+                return payload
+            return {"payload": payload}
     except Exception:
         pass
     return {}
+
+
+def _tool_name_from_payload(payload: dict[str, Any]) -> str | None:
+    tool = payload.get("tool")
+    if payload.get("tool_name"):
+        return str(payload["tool_name"])
+    if payload.get("toolName"):
+        return str(payload["toolName"])
+    if isinstance(tool, dict) and tool.get("name"):
+        return str(tool["name"])
+    if isinstance(tool, str) and tool:
+        return tool
+    return None
 
 
 def codex_hook(argv: list[str] | None = None) -> int:
@@ -107,10 +122,10 @@ def codex_hook(argv: list[str] | None = None) -> int:
       - PostToolUse
       - Stop
     """
-    argv = argv or sys.argv
-    hook_name = argv[1] if len(argv) > 1 else "unknown"
-
     try:
+        argv = argv or sys.argv
+        hook_name = argv[1] if len(argv) > 1 else "unknown"
+
         payload = _load_payload()
 
         # Common fields Codex / similar tools provide
@@ -149,10 +164,10 @@ def codex_hook(argv: list[str] | None = None) -> int:
 
         # For tool hooks, also emit more structured tool events if tool info present
         if hook_name in ("PreToolUse", "PostToolUse", "pre_tool", "post_tool"):
-            tool_name = payload.get("tool_name") or (payload.get("tool") or {}).get("name")
+            tool_name = _tool_name_from_payload(payload)
             if tool_name:
                 tool_type = "codex.tool.started" if "Pre" in hook_name or "pre" in hook_name else "codex.tool.completed"
-                tool_meta = {k: v for k, v in payload.items() if k not in ("session_id", "trace_id", "type", "status", "summary", "source")}
+                tool_meta = {k: v for k, v in payload.items() if k not in reserved}
                 tool_meta["tool_name"] = tool_name
                 _emit_event(
                     trace_id=trace_id,
@@ -163,14 +178,15 @@ def codex_hook(argv: list[str] | None = None) -> int:
                     **tool_meta,
                 )
     except Exception as e:
-        # CRITICAL: Hooks must NEVER crash or block the calling agent (Codex).
-        # Always succeed (exit 0) and log errors to a side channel for debugging.
+        # CRITICAL: Codex hooks must NEVER raise or return non-zero.
+        # Log for debugging and always succeed.
         try:
             log_path = os.path.expanduser("~/.codex/galeed-codex-hook-errors.log")
             with open(log_path, "a") as f:
-                f.write(f"{__import__('datetime').datetime.now()}: {type(e).__name__}: {e}\n")
+                import datetime
+                f.write(f"{datetime.datetime.now()}: {type(e).__name__}: {e}\n")
         except Exception:
-            pass  # absolute last resort, never raise
+            pass
         return 0
 
     return 0
