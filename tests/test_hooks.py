@@ -3,10 +3,7 @@
 from __future__ import annotations
 
 import json
-import os
 from io import StringIO
-
-import pytest
 
 from galeed.hooks import _load_payload, codex_hook
 
