@@ -42,6 +42,7 @@ from galeed.llm_calls import (
 from galeed.recorder import (
     TRACE_EVENTS_COLLECTION,
     Tracer,
+    ensure_indexes,
     list_trace_events,
     list_trace_sessions,
     record_event,
@@ -59,6 +60,7 @@ __all__ = [
     "Tracer",
     "TRACE_EVENTS_COLLECTION",
     "FEEDBACK_COLLECTION",
+    "ensure_indexes",
     "get_bus",
     "list_trace_events",
     "list_trace_sessions",

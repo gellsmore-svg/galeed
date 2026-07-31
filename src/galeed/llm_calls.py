@@ -219,7 +219,11 @@ def list_llm_calls(
 
     ``since`` is an ISO timestamp lower bound on ``completed_at``. With
     ``include_payloads=False`` the prompt/messages/output fields are replaced
-    by their character sizes (for lean list views)."""
+    by their character sizes (for lean list views).
+
+    ``limit=0`` means "unspecified", not "unbounded": it falls back to the
+    same 500-row cap as :func:`galeed.recorder.list_trace_events`, so no
+    caller can accidentally pull the whole collection."""
     if db is None:
         return []
     query: dict[str, Any] = {}

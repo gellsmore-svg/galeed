@@ -143,6 +143,98 @@ def test_list_trace_sessions_summarises():
     assert by_id["s1"]["last_answer_preview"] == "x is a thing"
 
 
+def test_list_trace_sessions_prefers_mongo_aggregation():
+    """A store with aggregate() must be grouped Mongo-side, never fully scanned."""
+    from galeed import list_trace_sessions
+
+    class AggregatingCollection(FakeCollection):
+        def __init__(self) -> None:
+            super().__init__()
+            self.pipelines: list[list[dict]] = []
+            self.finds = 0
+
+        def find(self, query=None, projection=None):
+            self.finds += 1
+            return super().find(query, projection)
+
+        def aggregate(self, pipeline):
+            self.pipelines.append(pipeline)
+            return [
+                {
+                    "_id": "s1",
+                    "event_count": 3,
+                    "sources": ["tirzah", None],
+                    "traces": ["trace_a", "trace_b", None],
+                    "started_at": "2026-07-01T10:00:00",
+                    "updated_at": "2026-07-01T10:05:00",
+                    "first_query": ["2026-07-01T10:00:00", "what is x?"],
+                    "last_answer": ["2026-07-01T10:05:00", "y" * 200],
+                }
+            ]
+
+    collection = AggregatingCollection()
+
+    class Db:
+        def __getitem__(self, name):
+            return collection
+
+    sessions = list_trace_sessions(Db(), limit=25)
+    assert collection.finds == 0  # no full-collection scan
+    assert collection.pipelines[0][-1] == {"$limit": 25}  # limit pushed to Mongo
+    assert sessions == [
+        {
+            "session_id": "s1",
+            "event_count": 3,
+            "sources": ["tirzah"],  # null source dropped
+            "trace_count": 2,  # null trace dropped
+            "started_at": "2026-07-01T10:00:00",
+            "updated_at": "2026-07-01T10:05:00",
+            "first_query": "what is x?",  # unwrapped from the [ts, value] pair
+            "last_answer_preview": "y" * 160,  # truncated
+        }
+    ]
+
+
+def test_list_trace_sessions_handles_empty_aggregation_fields():
+    """Sessions with no user query or answer must not blow up the row shaping."""
+    from galeed.recorder import _session_row_from_group
+
+    row = _session_row_from_group({"_id": "s9", "first_query": None, "last_answer": None})
+    assert row["session_id"] == "s9"
+    assert row["event_count"] == 0
+    assert row["sources"] == [] and row["trace_count"] == 0
+    assert row["first_query"] is None and row["last_answer_preview"] is None
+
+
+def test_list_trace_sessions_limit_zero_uses_default_not_empty():
+    from galeed import EventType, Tracer, list_trace_sessions
+
+    db = FakeDb()
+    Tracer(trace_id="t", session_id="s1", db=db).emit(EventType.PROCESS_STARTED)
+
+    assert len(list_trace_sessions(db, limit=0)) == 1  # limit=0 means "unspecified"
+
+
+def test_ensure_indexes_is_best_effort():
+    from galeed import ensure_indexes
+
+    assert ensure_indexes(None) is False
+    assert ensure_indexes(FakeDb()) is False  # fake has no create_index — never raises
+
+    created: list[tuple] = []
+
+    class IndexingDb:
+        def __getitem__(self, name):
+            class C:
+                def create_index(self, keys, name):
+                    created.append((name, tuple(keys)))
+
+            return C()
+
+    assert ensure_indexes(IndexingDb()) is True
+    assert [name for name, _ in created] == ["session_timeline", "trace_timeline"]
+
+
 def test_record_and_list_feedback():
     from galeed import list_feedback, record_feedback
 

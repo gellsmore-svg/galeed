@@ -1,5 +1,15 @@
 # Changelog
 
+## [Unreleased]
+- `list_trace_sessions` now groups Mongo-side (`$group`) instead of loading the
+  whole `trace_events` collection into the client (#14). Stores without
+  `aggregate` (the test fakes) fall back to the identical Python aggregation.
+- New `ensure_indexes(db)` creates the `session_timeline` and `trace_timeline`
+  indexes; called best-effort on `galeed serve` and CLI startup (#14).
+- `limit=0` is documented as "unspecified" and resolves to the same default on
+  every query path (#15). It previously returned *no* sessions from the Python
+  path.
+
 ## [0.2.0] - 2026-07-04
 - **LLM debugging layer**: `llm_calls` collection stores the complete In→Out per
   model call (prompt/messages, output, step_name, parent_call_id chains);

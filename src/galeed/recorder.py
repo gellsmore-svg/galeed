@@ -27,6 +27,29 @@ TRACE_EVENTS_COLLECTION = "trace_events"
 logger = logging.getLogger("galeed")
 
 
+def ensure_indexes(db: Any) -> bool:
+    """Best-effort create the ``trace_events`` indexes the queries here rely on.
+
+    Idempotent and safe to call on every startup; returns ``False`` (never
+    raises) when the store is absent or has no ``create_index`` — tracing must
+    keep working against fakes and unindexed stores.
+    """
+    if db is None:
+        return False
+    try:
+        collection = db[TRACE_EVENTS_COLLECTION]
+        # session summaries: $match/$group on session_id, ordered by timestamp
+        collection.create_index([("session_id", 1), ("timestamp", 1)], name="session_timeline")
+        # event replay for one trace, newest-first
+        collection.create_index(
+            [("trace_id", 1), ("timestamp", -1), ("seq", -1)], name="trace_timeline"
+        )
+    except Exception:
+        logger.debug("trace index creation failed (ignored)", exc_info=True)
+        return False
+    return True
+
+
 def record_event(db: Any, event: TraceEvent) -> None:
     """Best-effort persist of one event to ``trace_events`` (never raises)."""
     if db is None:
@@ -44,7 +67,11 @@ def list_trace_events(
     session_id: str | None = None,
     limit: int = 500,
 ) -> list[dict[str, Any]]:
-    """Replay events for a trace or session (for the dev-log window initial load)."""
+    """Replay events for a trace or session (for the dev-log window initial load).
+
+    ``limit=0`` means "unspecified", not "unbounded": it falls back to the same
+    500-row cap as :func:`galeed.llm_calls.list_llm_calls`, so no caller can
+    accidentally pull the whole collection."""
     if db is None:
         return []
     query: dict[str, Any] = {}
@@ -70,16 +97,90 @@ def list_trace_events(
     return rows
 
 
+def _sessions_pipeline(limit: int) -> list[dict[str, Any]]:
+    """Mongo ``$group`` pipeline behind :func:`list_trace_sessions`.
+
+    ``first_query``/``last_answer`` ride along as ``[timestamp, value]`` pairs so
+    a plain ``$min``/``$max`` picks the earliest/latest one — both accumulators
+    ignore the ``None`` emitted for non-matching events, so no per-event arrays
+    are accumulated.
+    """
+    return [
+        {"$match": {"session_id": {"$nin": [None, ""]}}},
+        {
+            "$group": {
+                "_id": "$session_id",
+                "event_count": {"$sum": 1},
+                "sources": {"$addToSet": "$source"},
+                "traces": {"$addToSet": "$trace_id"},
+                "started_at": {"$min": "$timestamp"},
+                "updated_at": {"$max": "$timestamp"},
+                "first_query": {
+                    "$min": {
+                        "$cond": [
+                            {"$eq": ["$type", "message.user.submitted"]},
+                            [
+                                {"$ifNull": ["$timestamp", ""]},
+                                {"$ifNull": ["$metadata.query", None]},
+                            ],
+                            None,
+                        ]
+                    }
+                },
+                "last_answer": {
+                    "$max": {
+                        "$cond": [
+                            {"$eq": ["$type", "answer.finalized"]},
+                            [
+                                {"$ifNull": ["$timestamp", ""]},
+                                {"$ifNull": ["$metadata.answer", None]},
+                            ],
+                            None,
+                        ]
+                    }
+                },
+            }
+        },
+        {"$sort": {"updated_at": -1}},
+        {"$limit": int(limit or 0) or 200},
+    ]
+
+
+def _session_row_from_group(group: dict[str, Any]) -> dict[str, Any]:
+    """Shape one ``$group`` output document like the Python-path summary rows."""
+    first_query = group.get("first_query") or []
+    last_answer = group.get("last_answer") or []
+    answer = last_answer[1] if len(last_answer) > 1 else None
+    return {
+        "session_id": group.get("_id"),
+        "event_count": group.get("event_count") or 0,
+        "sources": sorted(s for s in (group.get("sources") or []) if s),
+        "trace_count": len([t for t in (group.get("traces") or []) if t]),
+        "started_at": group.get("started_at"),
+        "updated_at": group.get("updated_at"),
+        "first_query": first_query[1] if len(first_query) > 1 else None,
+        "last_answer_preview": answer[:160] if isinstance(answer, str) else None,
+    }
+
+
 def list_trace_sessions(db: Any, *, limit: int = 200) -> list[dict[str, Any]]:
     """Summarise distinct sessions in the trace store (for the log browser).
 
     One row per ``session_id`` with its sources, event/request counts, time span,
-    the first user query, and a preview of the last answer. Aggregates in Python
-    over ``find`` so it works against the in-memory test fakes too; fine for now,
-    can move to a Mongo aggregation when the log grows.
+    the first user query, and a preview of the last answer. Grouped Mongo-side so
+    the full collection never loads; the in-memory test fakes have no
+    ``aggregate``, so they fall through to the equivalent Python aggregation.
     """
     if db is None:
         return []
+    try:
+        groups = list(db[TRACE_EVENTS_COLLECTION].aggregate(_sessions_pipeline(limit)))
+    except (AttributeError, TypeError):
+        pass  # fake/limited collection — aggregate in Python below
+    except Exception:
+        return []
+    else:
+        return [_session_row_from_group(group) for group in groups]
     try:
         rows = list(db[TRACE_EVENTS_COLLECTION].find({}, {"_id": 0}))
     except Exception:
@@ -135,7 +236,7 @@ def list_trace_sessions(db: Any, *, limit: int = 200) -> list[dict[str, Any]]:
             }
         )
     result.sort(key=lambda row: row.get("updated_at") or "", reverse=True)
-    return result[:limit]
+    return result[: int(limit or 0) or 200]
 
 
 class Tracer:

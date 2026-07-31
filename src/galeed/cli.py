@@ -34,7 +34,7 @@ import time
 from typing import Any
 
 from galeed.llm_calls import call_tree, list_llm_calls
-from galeed.recorder import list_trace_events, list_trace_sessions
+from galeed.recorder import ensure_indexes, list_trace_events, list_trace_sessions
 
 DEFAULT_MONGO_URI = os.environ.get("GALEED_MONGO_URI", "mongodb://localhost:27017")
 DEFAULT_MONGO_DB = os.environ.get("GALEED_MONGO_DB", "mnemosyne_dev")
@@ -48,7 +48,9 @@ def _database(args: argparse.Namespace) -> Any:
     except ImportError:
         _die("pymongo is required — install the cli extra:  pip install galeed[cli]")
     client = MongoClient(args.mongo_uri, serverSelectionTimeoutMS=3000)
-    return client[args.mongo_db]
+    db = client[args.mongo_db]
+    ensure_indexes(db)
+    return db
 
 
 def _console():

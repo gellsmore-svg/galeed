@@ -19,7 +19,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, StreamingResponse
 
 from galeed.llm_calls import get_llm_call, list_llm_calls
-from galeed.recorder import list_trace_events, list_trace_sessions
+from galeed.recorder import ensure_indexes, list_trace_events, list_trace_sessions
 
 _INDEX_HTML = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><title>Galeed</title>
@@ -48,6 +48,7 @@ def create_app(
 
     app = FastAPI(title="Galeed", description="Family trace/debugging API (read-only)")
     app.state.db = db
+    ensure_indexes(db)
 
     @app.get("/", response_class=HTMLResponse)
     def index() -> str:
