@@ -1,6 +1,13 @@
 # Changelog
 
 ## [Unreleased]
+- Followed the Cairn split in docs only: the analyser on the other end of the
+  observation bridge is now **Huldah** (`cairn` became `deborah` + `huldah` at
+  Deborah v0.9.0). The `cairn` module, `emit_cairn_observation`,
+  `CAIRN_OBSERVATION_KINDS` and `metadata.cairn_kind` are **unchanged** — they
+  name the observation *format*, not the analyser, and renaming them would be a
+  breaking wire change requiring a lockstep Huldah release. A new test pins the
+  contract and the round-trip is verified against Huldah's adapter.
 - `galeed serve` closes its `MongoClient` on shutdown via a FastAPI lifespan hook
   — but only one it opened itself; an injected `db` belongs to the caller.
 - `list_trace_sessions` now groups Mongo-side (`$group`) instead of loading the

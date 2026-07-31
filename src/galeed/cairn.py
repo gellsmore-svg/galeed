@@ -1,4 +1,17 @@
-"""Helpers for emitting Cairn-compatible observation events into Galeed."""
+"""Helpers for emitting Cairn-format observation events into Galeed.
+
+**The Cairn name here is deliberate and stays.** The `cairn` package split into
+`deborah` (process language) and `huldah` (human-systems analysis) at Deborah
+v0.9.0, and the *analyser* on the other end of this bridge is now Huldah —
+but `cairn_kind` and the kind vocabulary below are the **observation contract**,
+not a product name, exactly as `.cairn.md` remained the document format.
+
+Renaming them would be a breaking wire change: `huldah.galeed_adapter` reads
+`metadata.cairn_kind` to classify an event, so a rename here would need a
+lockstep Huldah release and would silently drop observations emitted by any
+Galeed version on the other side of the change. `tests/test_cairn.py` pins the
+key for that reason.
+"""
 
 from __future__ import annotations
 

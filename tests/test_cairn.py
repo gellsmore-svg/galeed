@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from galeed import Tracer, emit_cairn_observation
+from galeed import CAIRN_OBSERVATION_KINDS, Tracer, emit_cairn_observation
 
 
 def test_emit_cairn_observation_writes_cairn_metadata():
@@ -33,3 +33,28 @@ def test_emit_cairn_observation_rejects_unknown_kind():
 
     with pytest.raises(ValueError, match="Unsupported Cairn observation kind"):
         emit_cairn_observation(tracer, kind="person_score", message="nope")
+
+
+def test_observation_contract_is_stable_across_the_deborah_huldah_split():
+    """`cairn_kind` and the kind vocabulary are a wire contract — do not rename.
+
+    `huldah.galeed_adapter` classifies an event by reading
+    `metadata.cairn_kind` and matching it against these exact kind strings.
+    Renaming either side needs a lockstep release, and any mismatch drops
+    observations silently rather than failing loudly — hence this guard.
+    """
+    assert CAIRN_OBSERVATION_KINDS == {
+        "ui_event",
+        "system_log",
+        "agent_step",
+        "agent_output",
+        "agent_output_review",
+        "queue_event",
+        "feedback",
+        "recovery_event",
+    }
+
+    tracer = Tracer(session_id="s", db=None)
+    for kind in sorted(CAIRN_OBSERVATION_KINDS):
+        event = emit_cairn_observation(tracer, kind=kind, message="probe")
+        assert event.to_dict()["metadata"]["cairn_kind"] == kind

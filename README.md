@@ -22,7 +22,9 @@ views.**
   (e.g. SSE to a process panel or a dev-log window).
 - **`feedback`** — lightweight feedback events tied to a trace.
 - **`cairn`** — `emit_cairn_observation(...)`, a tiny bridge for events that
-  Cairn can analyse as human-load and agent-effectiveness evidence.
+  **Huldah** can analyse as human-load and agent-effectiveness evidence. The
+  module and `cairn_kind` key keep the Cairn name: it is the observation
+  *format*, not the analyser (which was renamed in the Deborah/Huldah split).
 - **`llm_calls`** — the **LLM debugging layer**: one document per model call with
   the COMPLETE input (prompt or messages list) and COMPLETE output, a human
   `step_name`, and `parent_call_id` chains for recursive flows. Spine events stay
@@ -50,11 +52,11 @@ Connection: `--mongo-uri/--mongo-db` or `GALEED_MONGO_URI` / `GALEED_MONGO_DB`
 
 ## Who emits into it
 
-Any family project — Tirzah, Mahalath, Hoglah, Cairn, Milcah — emits its process
+Any family project — Tirzah, Mahalath, Hoglah, Deborah, Huldah, Milcah — emits its process
 telemetry through Galeed. **Mizpah** is the viewer over what Galeed records.
 
-When a product wants Cairn to read an event as human-facing observation evidence,
-emit it through the Cairn bridge:
+When a product wants Huldah to read an event as human-facing observation
+evidence, emit it through the Cairn-format bridge:
 
 ```python
 emit_cairn_observation(

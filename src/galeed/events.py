@@ -6,7 +6,8 @@ emit into it; Mizpah and the galeed CLI/serve viewers read it.
 
 The event vocabulary below is the *documented* Tirzah set. It is intentionally
 NOT a closed enum: `Tracer.emit` accepts any ``type`` string, so other sources
-(and future CAIRN-governed processes) can extend it without code changes here.
+(and processes governed by a Cairn-format description) can extend it without
+code changes here.
 """
 
 from __future__ import annotations
