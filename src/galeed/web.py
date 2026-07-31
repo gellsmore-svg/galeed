@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import json
 import time
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
@@ -41,12 +43,29 @@ def create_app(
     db: Any = None,
 ) -> FastAPI:
     """Build the trace API over the family Mongo (or an injected db for tests)."""
+    owned_client: Any = None
     if db is None:
         from pymongo import MongoClient
 
-        db = MongoClient(mongo_uri, serverSelectionTimeoutMS=3000)[mongo_db]
+        owned_client = MongoClient(mongo_uri, serverSelectionTimeoutMS=3000)
+        db = owned_client[mongo_db]
 
-    app = FastAPI(title="Galeed", description="Family trace/debugging API (read-only)")
+    @asynccontextmanager
+    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        """Close the MongoClient on shutdown — but only one we opened ourselves.
+
+        An injected ``db`` belongs to the caller (tests, embedded usage); closing
+        it here would yank the connection out from under them.
+        """
+        yield
+        if owned_client is not None:
+            owned_client.close()
+
+    app = FastAPI(
+        title="Galeed",
+        description="Family trace/debugging API (read-only)",
+        lifespan=lifespan,
+    )
     app.state.db = db
     ensure_indexes(db)
 

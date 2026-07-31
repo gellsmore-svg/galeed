@@ -1,6 +1,8 @@
 # Changelog
 
 ## [Unreleased]
+- `galeed serve` closes its `MongoClient` on shutdown via a FastAPI lifespan hook
+  — but only one it opened itself; an injected `db` belongs to the caller.
 - `list_trace_sessions` now groups Mongo-side (`$group`) instead of loading the
   whole `trace_events` collection into the client (#14). Stores without
   `aggregate` (the test fakes) fall back to the identical Python aggregation.

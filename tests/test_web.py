@@ -45,3 +45,36 @@ def test_spine_endpoints_match_family_shapes(client) -> None:
     events = client.get("/api/trace/events?session_id=s1").json()
     assert events["ok"] and len(events["events"]) == 2  # the llm.call spine events
     assert client.get("/api/health").json()["ok"] is True
+
+
+def test_lifespan_closes_only_a_client_it_opened(monkeypatch):
+    """The trace API must not leak a MongoClient — nor close an injected db."""
+    import sys
+    import types
+
+    closed: list[bool] = []
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        def __getitem__(self, name):
+            return FakeDb()
+
+        def close(self) -> None:
+            closed.append(True)
+
+    fake_pymongo = types.ModuleType("pymongo")
+    fake_pymongo.MongoClient = FakeClient
+    monkeypatch.setitem(sys.modules, "pymongo", fake_pymongo)
+
+    # No db injected -> the app owns the client and must close it.
+    with TestClient(create_app()):
+        pass
+    assert closed == [True]
+
+    # Injected db -> caller owns it; nothing of ours to close.
+    closed.clear()
+    with TestClient(create_app(db=FakeDb())):
+        pass
+    assert closed == []
