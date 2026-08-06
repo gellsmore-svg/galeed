@@ -1,6 +1,12 @@
 # Changelog
 
 ## [Unreleased]
+- `record_llm_call` gains a first-class `usage` field (token counts). Previously
+  Hoglah reported usage inside `metadata`, where no aggregate query could reach
+  it — cost was recorded but not measurable. Legacy producers are promoted
+  automatically, so no caller has to change; the explicit argument wins when
+  both are present, and `total` is derived when only the components are given.
+  The key always exists (`{}` when unknown) so aggregates can rely on it.
 - Followed the Cairn split in docs only: the analyser on the other end of the
   observation bridge is now **Huldah** (`cairn` became `deborah` + `huldah` at
   Deborah v0.9.0). The `cairn` module, `emit_cairn_observation`,

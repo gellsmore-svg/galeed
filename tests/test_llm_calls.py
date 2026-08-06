@@ -161,3 +161,57 @@ def test_broken_db_never_raises() -> None:
     assert doc["call_id"]  # caller still gets the document back
     assert list_llm_calls(BrokenDb()) == []
     assert get_llm_call(BrokenDb(), "nope") is None
+
+
+def test_usage_is_a_first_class_field():
+    """Token counts are the only cost signal the family has — they must be
+    queryable without digging into metadata."""
+    db = FakeDb()
+    row = record_llm_call(
+        db, trace_id="t", session_id="s", source="hoglah",
+        model="gemma:2b", prompt="hi", output="there",
+        usage={"prompt_tokens": 7, "completion_tokens": 25, "total": 32},
+        emit_event=False,
+    )
+    assert row["usage"] == {"prompt_tokens": 7, "completion_tokens": 25, "total": 32}
+
+
+def test_legacy_metadata_usage_is_promoted():
+    """Hoglah has always reported usage inside metadata; those producers must
+    gain the queryable field without changing their own code."""
+    db = FakeDb()
+    row = record_llm_call(
+        db, trace_id="t", session_id="s", source="hoglah",
+        metadata={"kind": "generate", "usage": {"prompt_tokens": 2, "completion_tokens": 5, "total": 7}},
+        emit_event=False,
+    )
+    assert row["usage"] == {"prompt_tokens": 2, "completion_tokens": 5, "total": 7}
+    # the original metadata is left intact, not moved
+    assert row["metadata"]["usage"]["total"] == 7
+
+
+def test_explicit_usage_wins_over_metadata():
+    db = FakeDb()
+    row = record_llm_call(
+        db, trace_id="t", session_id="s", source="hoglah",
+        usage={"prompt_tokens": 100, "completion_tokens": 200, "total": 300},
+        metadata={"usage": {"prompt_tokens": 1, "completion_tokens": 1, "total": 2}},
+        emit_event=False,
+    )
+    assert row["usage"]["total"] == 300
+
+
+def test_total_is_derived_when_producer_omits_it():
+    db = FakeDb()
+    row = record_llm_call(
+        db, trace_id="t", session_id="s", source="x",
+        usage={"prompt_tokens": 10, "completion_tokens": 15},
+        emit_event=False,
+    )
+    assert row["usage"]["total"] == 25
+
+
+def test_usage_key_always_exists_so_aggregates_can_rely_on_it():
+    db = FakeDb()
+    row = record_llm_call(db, trace_id="t", session_id="s", source="x", emit_event=False)
+    assert row["usage"] == {}

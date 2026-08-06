@@ -43,6 +43,30 @@ def _utcnow_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+_USAGE_KEYS = ("prompt_tokens", "completion_tokens", "total")
+
+
+def _merge_usage(
+    usage: dict[str, int] | None, metadata: dict[str, Any] | None
+) -> dict[str, int]:
+    """Normalise token counts from either the explicit arg or legacy metadata.
+
+    Hoglah has always reported usage inside ``metadata['usage']``; promoting it
+    here means historical producers gain a queryable ``usage`` field without a
+    code change on their side, and the explicit argument wins when both are
+    present. Returns ``{}`` rather than None so aggregate queries can rely on
+    the key existing.
+    """
+    source = usage if usage else (metadata or {}).get("usage")
+    if not isinstance(source, dict):
+        return {}
+    merged = {k: int(v) for k, v in source.items() if isinstance(v, (int, float))}
+    # Derive the total when a producer reports only the two components.
+    if "total" not in merged and {"prompt_tokens", "completion_tokens"} <= merged.keys():
+        merged["total"] = merged["prompt_tokens"] + merged["completion_tokens"]
+    return merged
+
+
 def record_llm_call(
     db: Any,
     *,
@@ -60,6 +84,7 @@ def record_llm_call(
     started_at: str | None = None,
     completed_at: str | None = None,
     duration_ms: int | None = None,
+    usage: dict[str, int] | None = None,
     metadata: dict[str, Any] | None = None,
     emit_event: bool = True,
     tracer: Any = None,
@@ -71,6 +96,12 @@ def record_llm_call(
     (a fresh per-call Tracer always emits seq=1). Returns the stored document
     (with its ``call_id``) even when persistence fails — callers can keep
     flowing regardless.
+
+    ``usage`` is a first-class field, not metadata: token counts are the only
+    cost signal the family has, and burying them in ``metadata`` made them
+    invisible to every aggregate query. Producers that already report usage
+    inside ``metadata`` keep working — this promotes the value rather than
+    replacing it (see ``_merge_usage``).
     """
     doc: dict[str, Any] = {
         "call_id": call_id or new_call_id(),
@@ -88,6 +119,7 @@ def record_llm_call(
         "started_at": started_at,
         "completed_at": completed_at or _utcnow_iso(),
         "duration_ms": duration_ms,
+        "usage": _merge_usage(usage, metadata),
         "metadata": dict(metadata or {}),
     }
     if db is not None:
