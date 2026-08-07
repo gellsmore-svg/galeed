@@ -47,6 +47,44 @@ def test_spine_endpoints_match_family_shapes(client) -> None:
     assert client.get("/api/health").json()["ok"] is True
 
 
+def test_sse_watermark_dedup_and_new_events() -> None:
+    """#16: watermark advances, same-ts ids dedup, newer events pass through."""
+    from galeed.web import advance_watermark, events_after_watermark
+
+    e0 = {"event_id": "e0", "timestamp": "2026-07-04T10:00:00+00:00"}
+    e1 = {"event_id": "e1", "timestamp": "2026-07-04T10:01:00+00:00"}
+    e2 = {"event_id": "e2", "timestamp": "2026-07-04T10:01:00+00:00"}  # tie
+    e3 = {"event_id": "e3", "timestamp": "2026-07-04T10:02:00+00:00"}
+
+    # Replay pass: consume history once.
+    watermark, at_wm = advance_watermark("", set(), [e0, e1, e2])
+    assert watermark == "2026-07-04T10:01:00+00:00"
+    assert at_wm == {"e1", "e2"}
+
+    # Poll with the same events → nothing new (dedup, including same-ts ties).
+    assert events_after_watermark([e0, e1, e2], watermark, at_wm) == []
+
+    # Fresh event after watermark → delivered once.
+    new = events_after_watermark([e0, e1, e2, e3], watermark, at_wm)
+    assert [e["event_id"] for e in new] == ["e3"]
+    watermark, at_wm = advance_watermark(watermark, at_wm, new)
+    assert watermark == "2026-07-04T10:02:00+00:00"
+    assert at_wm == {"e3"}
+    assert events_after_watermark([e0, e1, e2, e3], watermark, at_wm) == []
+
+
+def test_sse_replay_false_still_sets_watermark() -> None:
+    """replay=false skips emission but watermark still advances past history."""
+    from galeed.web import advance_watermark, events_after_watermark
+
+    hist = {"event_id": "hist", "timestamp": "2026-07-04T09:00:00+00:00"}
+    watermark, at_wm = advance_watermark("", set(), [hist])
+    # Poll should not re-emit history even when the client skipped replay.
+    assert events_after_watermark([hist], watermark, at_wm) == []
+    newer = {"event_id": "next", "timestamp": "2026-07-04T09:01:00+00:00"}
+    assert events_after_watermark([hist, newer], watermark, at_wm) == [newer]
+
+
 def test_lifespan_closes_only_a_client_it_opened(monkeypatch):
     """The trace API must not leak a MongoClient — nor close an injected db."""
     import sys

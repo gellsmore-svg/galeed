@@ -37,6 +37,44 @@ a{color:#2f5fd0}</style></head><body>
 </body></html>"""
 
 
+def advance_watermark(
+    watermark: str,
+    at_watermark: set[str],
+    events: list[dict[str, Any]],
+) -> tuple[str, set[str]]:
+    """Advance the SSE watermark over ``events`` (newest timestamp + ids at that ts).
+
+    Pure helper so tests cover dedup without exercising a live SSE transport.
+    """
+    for event in events:
+        ts = str(event.get("timestamp") or "")
+        eid = event.get("event_id") or ""
+        if ts > watermark:
+            watermark = ts
+            at_watermark = {eid}
+        elif ts == watermark:
+            at_watermark = set(at_watermark)
+            at_watermark.add(eid)
+    return watermark, at_watermark
+
+
+def events_after_watermark(
+    events: list[dict[str, Any]],
+    watermark: str,
+    at_watermark: set[str],
+) -> list[dict[str, Any]]:
+    """Events strictly newer than the watermark, or same-ts with unseen ids."""
+    return [
+        e
+        for e in events
+        if str(e.get("timestamp") or "") > watermark
+        or (
+            str(e.get("timestamp") or "") == watermark
+            and (e.get("event_id") or "") not in at_watermark
+        )
+    ]
+
+
 def create_app(
     mongo_uri: str = "mongodb://localhost:27017",
     mongo_db: str = "mnemosyne_dev",
@@ -109,20 +147,12 @@ def create_app(
             watermark = ""
             at_watermark: set[str] = set()
 
-            def advance(events):
-                nonlocal watermark, at_watermark
-                for event in events:
-                    ts = str(event.get("timestamp") or "")
-                    if ts > watermark:
-                        watermark = ts
-                        at_watermark = {event.get("event_id") or ""}
-                    elif ts == watermark:
-                        at_watermark.add(event.get("event_id") or "")
-
             replay_events = list_trace_events(
                 db, trace_id=trace_id, session_id=session_id, limit=200
             )
-            advance(replay_events)
+            watermark, at_watermark = advance_watermark(
+                watermark, at_watermark, replay_events
+            )
             if replay:
                 for event in replay_events:
                     yield f"data: {json.dumps(event, default=str)}\n\n"
@@ -131,16 +161,13 @@ def create_app(
                 fresh = list_trace_events(
                     db, trace_id=trace_id, session_id=session_id, limit=200
                 )
-                new = [
-                    e for e in fresh
-                    if str(e.get("timestamp") or "") > watermark
-                    or (str(e.get("timestamp") or "") == watermark
-                        and (e.get("event_id") or "") not in at_watermark)
-                ]
+                new = events_after_watermark(fresh, watermark, at_watermark)
                 if not new:
                     yield ": keepalive\n\n"
                     continue
-                advance(new)
+                watermark, at_watermark = advance_watermark(
+                    watermark, at_watermark, new
+                )
                 for event in new:
                     yield f"data: {json.dumps(event, default=str)}\n\n"
 
