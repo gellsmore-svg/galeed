@@ -43,7 +43,13 @@ def _utcnow_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-_USAGE_KEYS = ("prompt_tokens", "completion_tokens", "total")
+_USAGE_KEYS = ("prompt_tokens", "completion_tokens", "total", "tokens_in", "tokens_out")
+
+# Rough USD-per-1M-token defaults for *local-first* cost bookkeeping.
+# Hosted APIs should pass an explicit ``cost``; these rates only fill gaps.
+DEFAULT_COST_PER_1M: dict[str, dict[str, float]] = {
+    "default": {"in": 0.0, "out": 0.0},  # local Ollama — zero cash cost
+}
 
 
 def _merge_usage(
@@ -56,15 +62,55 @@ def _merge_usage(
     code change on their side, and the explicit argument wins when both are
     present. Returns ``{}`` rather than None so aggregate queries can rely on
     the key existing.
+
+    Stage 0 aliases: ``tokens_in`` / ``tokens_out`` are accepted and normalised
+    to ``prompt_tokens`` / ``completion_tokens`` (and vice versa) so both names
+    work for queries and new producers.
     """
     source = usage if usage else (metadata or {}).get("usage")
     if not isinstance(source, dict):
         return {}
     merged = {k: int(v) for k, v in source.items() if isinstance(v, (int, float))}
+    # Alias normalisation
+    if "tokens_in" in merged and "prompt_tokens" not in merged:
+        merged["prompt_tokens"] = merged["tokens_in"]
+    if "tokens_out" in merged and "completion_tokens" not in merged:
+        merged["completion_tokens"] = merged["tokens_out"]
+    if "prompt_tokens" in merged and "tokens_in" not in merged:
+        merged["tokens_in"] = merged["prompt_tokens"]
+    if "completion_tokens" in merged and "tokens_out" not in merged:
+        merged["tokens_out"] = merged["completion_tokens"]
     # Derive the total when a producer reports only the two components.
     if "total" not in merged and {"prompt_tokens", "completion_tokens"} <= merged.keys():
         merged["total"] = merged["prompt_tokens"] + merged["completion_tokens"]
+    elif "total" not in merged and {"tokens_in", "tokens_out"} <= merged.keys():
+        merged["total"] = merged["tokens_in"] + merged["tokens_out"]
     return merged
+
+
+def estimate_cost_usd(
+    usage: dict[str, int] | None,
+    *,
+    model: str | None = None,
+    rates: dict[str, dict[str, float]] | None = None,
+) -> float | None:
+    """Estimate USD cost from token usage. Returns 0.0 for local/default rates.
+
+    Returns ``None`` when usage has no token counts (unknown, not free).
+    """
+    if not usage:
+        return None
+    tin = usage.get("tokens_in", usage.get("prompt_tokens"))
+    tout = usage.get("tokens_out", usage.get("completion_tokens"))
+    if tin is None and tout is None:
+        return None
+    tin = int(tin or 0)
+    tout = int(tout or 0)
+    table = rates or DEFAULT_COST_PER_1M
+    rate = table.get(model or "", table.get("default", {"in": 0.0, "out": 0.0}))
+    return (tin / 1_000_000.0) * float(rate.get("in", 0.0)) + (
+        tout / 1_000_000.0
+    ) * float(rate.get("out", 0.0))
 
 
 def record_llm_call(
@@ -85,6 +131,7 @@ def record_llm_call(
     completed_at: str | None = None,
     duration_ms: int | None = None,
     usage: dict[str, int] | None = None,
+    cost: float | None = None,
     metadata: dict[str, Any] | None = None,
     emit_event: bool = True,
     tracer: Any = None,
@@ -102,7 +149,13 @@ def record_llm_call(
     invisible to every aggregate query. Producers that already report usage
     inside ``metadata`` keep working — this promotes the value rather than
     replacing it (see ``_merge_usage``).
+
+    ``cost`` is optional USD. When omitted but usage is present,
+    :func:`estimate_cost_usd` fills a best-effort value (0.0 for local defaults).
     """
+    merged_usage = _merge_usage(usage, metadata)
+    if cost is None and merged_usage:
+        cost = estimate_cost_usd(merged_usage, model=model)
     doc: dict[str, Any] = {
         "call_id": call_id or new_call_id(),
         "trace_id": trace_id,
@@ -119,7 +172,10 @@ def record_llm_call(
         "started_at": started_at,
         "completed_at": completed_at or _utcnow_iso(),
         "duration_ms": duration_ms,
-        "usage": _merge_usage(usage, metadata),
+        "usage": merged_usage,
+        "cost": cost,
+        "tokens_in": merged_usage.get("tokens_in", merged_usage.get("prompt_tokens")),
+        "tokens_out": merged_usage.get("tokens_out", merged_usage.get("completion_tokens")),
         "metadata": dict(metadata or {}),
     }
     if db is not None:
@@ -152,6 +208,9 @@ def record_llm_call(
                     call_id=doc["call_id"],
                     step_name=step_name,
                     model=model,
+                    tokens_in=doc.get("tokens_in"),
+                    tokens_out=doc.get("tokens_out"),
+                    cost=doc.get("cost"),
                 )
         except Exception:
             pass

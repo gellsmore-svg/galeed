@@ -29,11 +29,13 @@ from galeed.feedback import (
     list_feedback,
     record_feedback,
 )
+from galeed.decisions import record_decision, record_negotiation
 from galeed.llm_calls import (
     LLM_CALLS_COLLECTION,
     CallCapture,
     call_tree,
     capture_llm_call,
+    estimate_cost_usd,
     get_llm_call,
     list_llm_calls,
     new_call_id,
@@ -80,4 +82,7 @@ __all__ = [
     "list_llm_calls",
     "new_call_id",
     "record_llm_call",
+    "estimate_cost_usd",
+    "record_decision",
+    "record_negotiation",
 ]

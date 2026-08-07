@@ -77,6 +77,36 @@ def test_record_persists_full_io_and_mirrors_light_spine_event() -> None:
     assert "output" not in events[0]["metadata"]
 
 
+def test_usage_tokens_aliases_and_cost() -> None:
+    db = FakeDb()
+    doc = record_llm_call(
+        db,
+        trace_id="t",
+        session_id="s",
+        source="hoglah",
+        model="gemma3:1b",
+        prompt="hi",
+        output="yo",
+        usage={"tokens_in": 10, "tokens_out": 5},
+    )
+    assert doc["usage"]["prompt_tokens"] == 10
+    assert doc["usage"]["completion_tokens"] == 5
+    assert doc["tokens_in"] == 10
+    assert doc["tokens_out"] == 5
+    assert doc["cost"] == 0.0  # local default rates
+    stored = db[LLM_CALLS_COLLECTION].rows[0]
+    assert stored["tokens_in"] == 10
+    assert stored["cost"] == 0.0
+
+
+def test_estimate_cost_usd_unknown_without_tokens() -> None:
+    from galeed.llm_calls import estimate_cost_usd
+
+    assert estimate_cost_usd(None) is None
+    assert estimate_cost_usd({}) is None
+    assert estimate_cost_usd({"tokens_in": 1000, "tokens_out": 0}) == 0.0
+
+
 def test_record_failed_call_emits_failed_event() -> None:
     db = FakeDb()
     record_llm_call(
@@ -173,7 +203,14 @@ def test_usage_is_a_first_class_field():
         usage={"prompt_tokens": 7, "completion_tokens": 25, "total": 32},
         emit_event=False,
     )
-    assert row["usage"] == {"prompt_tokens": 7, "completion_tokens": 25, "total": 32}
+    assert row["usage"]["prompt_tokens"] == 7
+    assert row["usage"]["completion_tokens"] == 25
+    assert row["usage"]["total"] == 32
+    # Stage 0 aliases always present when components are known
+    assert row["usage"]["tokens_in"] == 7
+    assert row["usage"]["tokens_out"] == 25
+    assert row["tokens_in"] == 7
+    assert row["cost"] == 0.0
 
 
 def test_legacy_metadata_usage_is_promoted():
@@ -185,7 +222,10 @@ def test_legacy_metadata_usage_is_promoted():
         metadata={"kind": "generate", "usage": {"prompt_tokens": 2, "completion_tokens": 5, "total": 7}},
         emit_event=False,
     )
-    assert row["usage"] == {"prompt_tokens": 2, "completion_tokens": 5, "total": 7}
+    assert row["usage"]["prompt_tokens"] == 2
+    assert row["usage"]["completion_tokens"] == 5
+    assert row["usage"]["total"] == 7
+    assert row["usage"]["tokens_in"] == 2
     # the original metadata is left intact, not moved
     assert row["metadata"]["usage"]["total"] == 7
 

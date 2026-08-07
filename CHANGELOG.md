@@ -1,6 +1,16 @@
 # Changelog
 
 ## [Unreleased]
+
+## [0.3.0] — 2026-08-07
+
+### Added
+- Stage 0: `tokens_in` / `tokens_out` aliases on `record_llm_call` (+ first-class
+  `cost` with `estimate_cost_usd` for local-zero defaults)
+- `decision.recorded`, `negotiation.started`, `negotiation.finished` event types
+- `galeed.decisions.record_decision` / `record_negotiation` helpers
+
+### Prior unreleased
 - `record_llm_call` gains a first-class `usage` field (token counts). Previously
   Hoglah reported usage inside `metadata`, where no aggregate query could reach
   it — cost was recorded but not measurable. Legacy producers are promoted

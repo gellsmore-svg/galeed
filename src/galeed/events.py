@@ -93,6 +93,13 @@ class EventType:
     # only summary + metadata.call_id so session listings stay light.
     LLM_CALL_COMPLETED = "llm.call.completed"
     LLM_CALL_FAILED = "llm.call.failed"
+    # Decision spine (Stage 0): *why* a framed run chose accept/reject/open —
+    # not just that a step finished. Emitters (Deborah slice, Tirzah planner)
+    # record selected option, rejected alternatives, and basis.
+    DECISION_RECORDED = "decision.recorded"
+    # Negotiation spine (bounded protocol, not free chat).
+    NEGOTIATION_STARTED = "negotiation.started"
+    NEGOTIATION_FINISHED = "negotiation.finished"
 
 
 KNOWN_EVENT_TYPES: frozenset[str] = frozenset(
