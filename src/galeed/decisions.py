@@ -130,3 +130,56 @@ def record_negotiation(
     except Exception:
         pass
     return {"type": etype, "summary": summary, **meta}
+
+
+def record_open_question_event(
+    db: Any = None,
+    *,
+    tracer: Any = None,
+    trace_id: str | None = None,
+    session_id: str | None = None,
+    source: str = "deborah",
+    open_question_id: str,
+    question: str,
+    reason: str | None = None,
+    plan_id: str | None = None,
+    run_terminal: str | None = None,
+    metadata: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Emit ``open_question.recorded`` on the spine. Best-effort; never raises."""
+    meta = {
+        "open_question_id": open_question_id,
+        "question": question,
+        "reason": reason,
+        "plan_id": plan_id,
+        "run_terminal": run_terminal,
+        **(metadata or {}),
+    }
+    summary = f"open_question {open_question_id}"
+    if reason:
+        summary = f"{summary}: {str(reason)[:80]}"
+    payload = {k: v for k, v in meta.items() if v is not None}
+    try:
+        if tracer is not None:
+            tracer.emit(
+                EventType.OPEN_QUESTION_RECORDED,
+                summary=summary,
+                status="ok",
+                **payload,
+            )
+        elif db is not None:
+            t = Tracer(
+                trace_id=trace_id or "open-question",
+                session_id=session_id or "session",
+                db=db,
+                source=source,
+            )
+            t.emit(
+                EventType.OPEN_QUESTION_RECORDED,
+                summary=summary,
+                status="ok",
+                **payload,
+            )
+    except Exception:
+        pass
+    return {"type": EventType.OPEN_QUESTION_RECORDED, "summary": summary, **meta}

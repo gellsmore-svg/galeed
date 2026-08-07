@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+## [0.3.1] — 2026-08-07
+
+### Added
+- `open_question.recorded` event type + `record_open_question_event` helper
+
 ## [0.3.0] — 2026-08-07
 
 ### Added

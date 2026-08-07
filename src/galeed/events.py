@@ -100,6 +100,8 @@ class EventType:
     # Negotiation spine (bounded protocol, not free chat).
     NEGOTIATION_STARTED = "negotiation.started"
     NEGOTIATION_FINISHED = "negotiation.finished"
+    # Residual uncertainty recorded as a first-class open question (Deborah).
+    OPEN_QUESTION_RECORDED = "open_question.recorded"
 
 
 KNOWN_EVENT_TYPES: frozenset[str] = frozenset(

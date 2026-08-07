@@ -25,6 +25,21 @@ def test_record_decision_on_tracer() -> None:
     )
 
 
+def test_record_open_question_event() -> None:
+    from galeed import record_open_question_event
+
+    db = FakeDb()
+    tracer = Tracer(trace_id="t3", session_id="s3", db=db, source="deborah")
+    record_open_question_event(
+        tracer=tracer,
+        open_question_id="oq_1",
+        question="Is X true?",
+        reason="no evidence",
+        plan_id="p",
+    )
+    assert any(e.type == EventType.OPEN_QUESTION_RECORDED for e in tracer.events)
+
+
 def test_record_negotiation_started_and_finished() -> None:
     db = FakeDb()
     tracer = Tracer(trace_id="t2", session_id="s2", db=db, source="deborah")
