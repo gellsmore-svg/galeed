@@ -60,6 +60,34 @@ def record_event(db: Any, event: TraceEvent) -> None:
         logger.debug("trace event persistence failed (ignored)", exc_info=True)
 
 
+def _warn_schema_versions(rows: list[dict[str, Any]]) -> None:
+    """Warn (never fail) when stored events carry an unrecognised major version.
+
+    Producers stamp ``schema_version``; without a read-side check the field is
+    one-directional (review M1). Additive event types do not bump the major.
+    """
+    from galeed.events import SCHEMA_VERSION
+
+    try:
+        expected_major = str(SCHEMA_VERSION).split(".", 1)[0]
+    except Exception:
+        return
+    seen: set[str] = set()
+    for row in rows:
+        version = row.get("schema_version")
+        if not version:
+            continue
+        major = str(version).split(".", 1)[0]
+        if major != expected_major and str(version) not in seen:
+            seen.add(str(version))
+            logger.warning(
+                "trace event schema_version %r is not recognised "
+                "(this galeed speaks %s); continuing best-effort",
+                version,
+                SCHEMA_VERSION,
+            )
+
+
 def list_trace_events(
     db: Any,
     *,
@@ -86,6 +114,7 @@ def list_trace_events(
             # collection never loads; fakes without sort() fall back below.
             rows = list(cursor.sort([("timestamp", -1), ("seq", -1)]).limit(int(limit or 0) or 500))
             rows.reverse()
+            _warn_schema_versions(rows)
             return rows
         except (AttributeError, TypeError):
             rows = list(cursor)
@@ -94,6 +123,7 @@ def list_trace_events(
     rows.sort(key=lambda row: (row.get("timestamp") or "", row.get("seq") or 0))
     if limit and len(rows) > limit:
         rows = rows[-limit:]
+    _warn_schema_versions(rows)
     return rows
 
 

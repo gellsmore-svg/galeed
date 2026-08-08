@@ -26,6 +26,8 @@ class TraceBus:
         # channel -> list of subscriber queues. Channels are trace_id, session_id,
         # and WILDCARD (everything).
         self._subscribers: dict[str, list["queue.Queue[TraceEvent]"]] = {}
+        # Slow-consumer drops are correct; silence is not (review M2).
+        self._dropped: int = 0
 
     def publish(self, event: TraceEvent) -> None:
         channels = {event.trace_id, event.session_id, WILDCARD}
@@ -36,7 +38,10 @@ class TraceBus:
             try:
                 sub.put_nowait(event)
             except queue.Full:
-                pass  # slow consumer: drop rather than block the request
+                # Drop rather than block the request — count so publishers and
+                # `galeed sessions` can see stream holes (review M2).
+                with self._lock:
+                    self._dropped += 1
 
     def _add(self, channel: str, sub: "queue.Queue[TraceEvent]") -> None:
         with self._lock:
@@ -63,6 +68,19 @@ class TraceBus:
     def subscriber_count(self) -> int:
         with self._lock:
             return sum(len(subs) for subs in self._subscribers.values())
+
+    @property
+    def dropped(self) -> int:
+        """Events discarded because a subscriber queue was full."""
+        with self._lock:
+            return self._dropped
+
+    def reset_dropped(self) -> int:
+        """Return and clear the dropped-event counter (for tests / reporting)."""
+        with self._lock:
+            n = self._dropped
+            self._dropped = 0
+            return n
 
 
 _BUS: TraceBus | None = None

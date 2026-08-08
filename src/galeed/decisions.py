@@ -94,9 +94,14 @@ def record_negotiation(
     max_rounds: int | None = None,
     plan_id: str | None = None,
     reason: str | None = None,
+    note: str | None = None,
     metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Emit negotiation.started / negotiation.finished. Best-effort."""
+    """Emit negotiation.started / negotiation.finished. Best-effort.
+
+    ``note`` is a short phase label (e.g. ``post_retrieve``) stored in metadata
+    so viewers (Mizpah) can distinguish pre-plan vs mid-slice gates.
+    """
     etype = (
         EventType.NEGOTIATION_STARTED
         if phase == "started"
@@ -109,9 +114,12 @@ def record_negotiation(
         "max_rounds": max_rounds,
         "plan_id": plan_id,
         "reason": reason,
+        "note": note,
+        "negotiation_phase": note,  # alias for UI filters
         **(metadata or {}),
     }
-    summary = f"negotiation {phase}"
+    label = note or "negotiation"
+    summary = f"{label} {phase}" if note else f"negotiation {phase}"
     if status:
         summary = f"{summary} → {status}"
     event_status = "ok" if status in {None, "agreed", "partial"} else "error"

@@ -2,6 +2,35 @@
 
 ## [Unreleased]
 
+## [0.4.0] — 2026-08-08
+
+Review action for `docs/review-2026-08-08.md` (0.3.x baseline).
+
+### Fixed
+- **H1 / F1**: `estimate_cost_usd` returns `None` for unpriced models (no more
+  silent `$0.00`). Explicit free rates only for listed local models +
+  `default` when `model` is unset.
+- **H2 / F3**: hook Mongo probe uses 250 ms timeout and a 60 s
+  `~/.galeed/mongo-unreachable` breadcrumb so a down host does not add ~2 s
+  per hook process.
+- **M3**: `usage` stores only canonical keys (`prompt_tokens`,
+  `completion_tokens`, `total`); aliases remain on top-level document fields.
+- **M4**: hooks and CLI close their `MongoClient` after use.
+
+### Added
+- **H3**: `llm_instrumentation_coverage` + `galeed sessions` table — per-source
+  usage/duration rates over `llm_calls`.
+- **M1**: `list_trace_events` warns on unrecognised major `schema_version`.
+- **M2**: `TraceBus.dropped` counter for full-queue drops; shown in sessions.
+- `record_negotiation(..., note=)` (landed from 0.3.2 WIP).
+
+## [0.3.2] — 2026-08-07
+
+### Added
+- ``record_negotiation(..., note=)`` — labels pre-plan vs mid-slice
+  (e.g. ``post_retrieve``); stored as ``metadata.note`` /
+  ``negotiation_phase`` and reflected in the summary for Mizpah chips
+
 ## [0.3.1] — 2026-08-07
 
 ### Added

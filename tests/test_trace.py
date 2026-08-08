@@ -122,6 +122,20 @@ def test_subscribe_unsubscribes_on_exit():
     assert bus.subscriber_count() == 0
 
 
+def test_bus_counts_dropped_events_when_queue_full():
+    """Review M2: drops are correct; silence is not."""
+    bus = TraceBus(max_queue=1)
+    with bus.subscribe("t") as q:
+        Tracer(trace_id="t", session_id="s", db=None, bus=bus).emit(EventType.PROCESS_STARTED)
+        # fill the queue; further publishes drop
+        Tracer(trace_id="t", session_id="s", db=None, bus=bus).emit(EventType.PROCESS_STEP)
+        Tracer(trace_id="t", session_id="s", db=None, bus=bus).emit(EventType.PROCESS_COMPLETED)
+        assert bus.dropped >= 1
+        assert not q.empty()
+    assert bus.reset_dropped() >= 1
+    assert bus.dropped == 0
+
+
 def test_list_trace_sessions_summarises():
     from galeed import EventType, Tracer, list_trace_sessions
 

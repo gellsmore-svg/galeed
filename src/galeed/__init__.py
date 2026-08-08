@@ -42,6 +42,7 @@ from galeed.llm_calls import (
     estimate_cost_usd,
     get_llm_call,
     list_llm_calls,
+    llm_instrumentation_coverage,
     new_call_id,
     record_llm_call,
 )
@@ -87,6 +88,7 @@ __all__ = [
     "new_call_id",
     "record_llm_call",
     "estimate_cost_usd",
+    "llm_instrumentation_coverage",
     "record_decision",
     "record_negotiation",
     "record_open_question_event",

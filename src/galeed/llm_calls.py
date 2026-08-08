@@ -43,12 +43,21 @@ def _utcnow_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-_USAGE_KEYS = ("prompt_tokens", "completion_tokens", "total", "tokens_in", "tokens_out")
+# Canonical usage keys stored on llm_calls documents (review M3). Aliases
+# (tokens_in / tokens_out) are accepted on write and available as top-level
+# fields on the document, but not duplicated inside ``usage``.
+_CANONICAL_USAGE_KEYS = ("prompt_tokens", "completion_tokens", "total")
 
-# Rough USD-per-1M-token defaults for *local-first* cost bookkeeping.
-# Hosted APIs should pass an explicit ``cost``; these rates only fill gaps.
+# USD-per-1M-token rates. Only models listed here (or ``default`` when
+# ``model`` is unset) produce a numeric cost. Unpriced models return ``None``
+# — never silent $0.00 (review H1/F1). Explicit 0.0 = free local inference.
 DEFAULT_COST_PER_1M: dict[str, dict[str, float]] = {
-    "default": {"in": 0.0, "out": 0.0},  # local Ollama — zero cash cost
+    "default": {"in": 0.0, "out": 0.0},  # model=None → free/local assumption
+    # Family local Ollama models (cash cost zero; still measured in tokens).
+    "gemma3:1b": {"in": 0.0, "out": 0.0},
+    "gemma4:e2b": {"in": 0.0, "out": 0.0},
+    "mistral-small:latest": {"in": 0.0, "out": 0.0},
+    "mistral-small": {"in": 0.0, "out": 0.0},
 }
 
 
@@ -63,28 +72,26 @@ def _merge_usage(
     present. Returns ``{}`` rather than None so aggregate queries can rely on
     the key existing.
 
-    Stage 0 aliases: ``tokens_in`` / ``tokens_out`` are accepted and normalised
-    to ``prompt_tokens`` / ``completion_tokens`` (and vice versa) so both names
-    work for queries and new producers.
+    Stores only the canonical pair plus ``total`` (review M3). Aliases
+    ``tokens_in`` / ``tokens_out`` are accepted as input and projected onto
+    top-level document fields by :func:`record_llm_call`.
     """
     source = usage if usage else (metadata or {}).get("usage")
     if not isinstance(source, dict):
         return {}
-    merged = {k: int(v) for k, v in source.items() if isinstance(v, (int, float))}
-    # Alias normalisation
-    if "tokens_in" in merged and "prompt_tokens" not in merged:
-        merged["prompt_tokens"] = merged["tokens_in"]
-    if "tokens_out" in merged and "completion_tokens" not in merged:
-        merged["completion_tokens"] = merged["tokens_out"]
-    if "prompt_tokens" in merged and "tokens_in" not in merged:
-        merged["tokens_in"] = merged["prompt_tokens"]
-    if "completion_tokens" in merged and "tokens_out" not in merged:
-        merged["tokens_out"] = merged["completion_tokens"]
-    # Derive the total when a producer reports only the two components.
-    if "total" not in merged and {"prompt_tokens", "completion_tokens"} <= merged.keys():
+    raw = {k: int(v) for k, v in source.items() if isinstance(v, (int, float))}
+    prompt = raw.get("prompt_tokens", raw.get("tokens_in"))
+    completion = raw.get("completion_tokens", raw.get("tokens_out"))
+    total = raw.get("total")
+    merged: dict[str, int] = {}
+    if prompt is not None:
+        merged["prompt_tokens"] = int(prompt)
+    if completion is not None:
+        merged["completion_tokens"] = int(completion)
+    if total is not None:
+        merged["total"] = int(total)
+    elif "prompt_tokens" in merged and "completion_tokens" in merged:
         merged["total"] = merged["prompt_tokens"] + merged["completion_tokens"]
-    elif "total" not in merged and {"tokens_in", "tokens_out"} <= merged.keys():
-        merged["total"] = merged["tokens_in"] + merged["tokens_out"]
     return merged
 
 
@@ -94,9 +101,13 @@ def estimate_cost_usd(
     model: str | None = None,
     rates: dict[str, dict[str, float]] | None = None,
 ) -> float | None:
-    """Estimate USD cost from token usage. Returns 0.0 for local/default rates.
+    """Estimate USD cost from token usage.
 
-    Returns ``None`` when usage has no token counts (unknown, not free).
+    Returns ``None`` when usage has no token counts **or** the model is not in
+    the rate table (unknown / unpriced — not free). Returns ``0.0`` only for
+    models explicitly priced at zero (local Ollama entries in
+    :data:`DEFAULT_COST_PER_1M`) or when ``model`` is unset and ``default``
+    applies (review H1/F1).
     """
     if not usage:
         return None
@@ -106,11 +117,64 @@ def estimate_cost_usd(
         return None
     tin = int(tin or 0)
     tout = int(tout or 0)
-    table = rates or DEFAULT_COST_PER_1M
-    rate = table.get(model or "", table.get("default", {"in": 0.0, "out": 0.0}))
+    table = rates if rates is not None else DEFAULT_COST_PER_1M
+    model_key = (model or "").strip()
+    if model_key:
+        rate = table.get(model_key)
+        if rate is None:
+            return None  # unpriced named model — not free
+    else:
+        rate = table.get("default")
+        if rate is None:
+            return None
     return (tin / 1_000_000.0) * float(rate.get("in", 0.0)) + (
         tout / 1_000_000.0
     ) * float(rate.get("out", 0.0))
+
+
+def llm_instrumentation_coverage(db: Any) -> list[dict[str, Any]]:
+    """Per-source coverage of usage / duration on ``llm_calls`` (review H3).
+
+    Answers "what fraction of the spine is instrumented?" — the surface that
+    would have caught Tirzah writing 119 calls with neither tokens nor
+    duration without a manual Mongo query.
+    """
+    if db is None:
+        return []
+    try:
+        rows = list(db[LLM_CALLS_COLLECTION].find({}, {"_id": 0, "source": 1, "usage": 1, "duration_ms": 1}))
+    except Exception:
+        return []
+    by_source: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        source = str(row.get("source") or "unknown")
+        bucket = by_source.setdefault(
+            source,
+            {"source": source, "calls": 0, "with_usage": 0, "with_duration": 0},
+        )
+        bucket["calls"] += 1
+        usage = row.get("usage") or {}
+        total = 0
+        if isinstance(usage, dict):
+            total = int(usage.get("total") or 0)
+            if not total:
+                tin = usage.get("prompt_tokens", usage.get("tokens_in")) or 0
+                tout = usage.get("completion_tokens", usage.get("tokens_out")) or 0
+                total = int(tin) + int(tout)
+        if total > 0:
+            bucket["with_usage"] += 1
+        if row.get("duration_ms") is not None:
+            bucket["with_duration"] += 1
+    result = []
+    for bucket in by_source.values():
+        n = bucket["calls"] or 1
+        result.append({
+            **bucket,
+            "usage_rate": bucket["with_usage"] / n,
+            "duration_rate": bucket["with_duration"] / n,
+        })
+    result.sort(key=lambda r: (-r["calls"], r["source"]))
+    return result
 
 
 def record_llm_call(
@@ -151,7 +215,8 @@ def record_llm_call(
     replacing it (see ``_merge_usage``).
 
     ``cost`` is optional USD. When omitted but usage is present,
-    :func:`estimate_cost_usd` fills a best-effort value (0.0 for local defaults).
+    :func:`estimate_cost_usd` fills a best-effort value (``0.0`` for models
+    explicitly priced free; ``None`` for unpriced models — review H1).
     """
     merged_usage = _merge_usage(usage, metadata)
     if cost is None and merged_usage:
@@ -174,8 +239,9 @@ def record_llm_call(
         "duration_ms": duration_ms,
         "usage": merged_usage,
         "cost": cost,
-        "tokens_in": merged_usage.get("tokens_in", merged_usage.get("prompt_tokens")),
-        "tokens_out": merged_usage.get("tokens_out", merged_usage.get("completion_tokens")),
+        # Top-level aliases for query convenience; not duplicated inside usage.
+        "tokens_in": merged_usage.get("prompt_tokens"),
+        "tokens_out": merged_usage.get("completion_tokens"),
         "metadata": dict(metadata or {}),
     }
     if db is not None:

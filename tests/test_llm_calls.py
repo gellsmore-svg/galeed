@@ -89,11 +89,14 @@ def test_usage_tokens_aliases_and_cost() -> None:
         output="yo",
         usage={"tokens_in": 10, "tokens_out": 5},
     )
+    # Canonical keys only inside usage (review M3); aliases on the document.
     assert doc["usage"]["prompt_tokens"] == 10
     assert doc["usage"]["completion_tokens"] == 5
+    assert doc["usage"]["total"] == 15
+    assert "tokens_in" not in doc["usage"]
     assert doc["tokens_in"] == 10
     assert doc["tokens_out"] == 5
-    assert doc["cost"] == 0.0  # local default rates
+    assert doc["cost"] == 0.0  # gemma3:1b is explicitly free-local
     stored = db[LLM_CALLS_COLLECTION].rows[0]
     assert stored["tokens_in"] == 10
     assert stored["cost"] == 0.0
@@ -104,7 +107,25 @@ def test_estimate_cost_usd_unknown_without_tokens() -> None:
 
     assert estimate_cost_usd(None) is None
     assert estimate_cost_usd({}) is None
+    # model unset → default free-local rate
     assert estimate_cost_usd({"tokens_in": 1000, "tokens_out": 0}) == 0.0
+    # unpriced named model → None, not $0.00 (review H1)
+    assert estimate_cost_usd(
+        {"prompt_tokens": 1_000_000, "completion_tokens": 1_000_000},
+        model="claude-opus-5",
+    ) is None
+    # explicit free local
+    assert estimate_cost_usd(
+        {"prompt_tokens": 1000, "completion_tokens": 0},
+        model="gemma4:e2b",
+    ) == 0.0
+    # injectable rates for a priced model
+    cost = estimate_cost_usd(
+        {"prompt_tokens": 1_000_000, "completion_tokens": 0},
+        model="gpt-x",
+        rates={"gpt-x": {"in": 1.0, "out": 2.0}},
+    )
+    assert cost == 1.0
 
 
 def test_record_failed_call_emits_failed_event() -> None:
@@ -199,16 +220,15 @@ def test_usage_is_a_first_class_field():
     db = FakeDb()
     row = record_llm_call(
         db, trace_id="t", session_id="s", source="hoglah",
-        model="gemma:2b", prompt="hi", output="there",
+        model="gemma3:1b", prompt="hi", output="there",
         usage={"prompt_tokens": 7, "completion_tokens": 25, "total": 32},
         emit_event=False,
     )
     assert row["usage"]["prompt_tokens"] == 7
     assert row["usage"]["completion_tokens"] == 25
     assert row["usage"]["total"] == 32
-    # Stage 0 aliases always present when components are known
-    assert row["usage"]["tokens_in"] == 7
-    assert row["usage"]["tokens_out"] == 25
+    # Canonical usage only; aliases live top-level (review M3)
+    assert "tokens_in" not in row["usage"]
     assert row["tokens_in"] == 7
     assert row["cost"] == 0.0
 
@@ -219,13 +239,14 @@ def test_legacy_metadata_usage_is_promoted():
     db = FakeDb()
     row = record_llm_call(
         db, trace_id="t", session_id="s", source="hoglah",
+        model="gemma3:1b",
         metadata={"kind": "generate", "usage": {"prompt_tokens": 2, "completion_tokens": 5, "total": 7}},
         emit_event=False,
     )
     assert row["usage"]["prompt_tokens"] == 2
     assert row["usage"]["completion_tokens"] == 5
     assert row["usage"]["total"] == 7
-    assert row["usage"]["tokens_in"] == 2
+    assert row["tokens_in"] == 2
     # the original metadata is left intact, not moved
     assert row["metadata"]["usage"]["total"] == 7
 
@@ -255,3 +276,31 @@ def test_usage_key_always_exists_so_aggregates_can_rely_on_it():
     db = FakeDb()
     row = record_llm_call(db, trace_id="t", session_id="s", source="x", emit_event=False)
     assert row["usage"] == {}
+
+
+def test_instrumentation_coverage_per_source() -> None:
+    """Review H3: per-source usage/duration rates over llm_calls."""
+    from galeed.llm_calls import llm_instrumentation_coverage
+
+    db = FakeDb()
+    record_llm_call(
+        db, trace_id="t", session_id="s", source="hoglah",
+        usage={"prompt_tokens": 10, "completion_tokens": 5},
+        duration_ms=40, emit_event=False,
+    )
+    record_llm_call(
+        db, trace_id="t", session_id="s", source="hoglah",
+        usage={}, emit_event=False,
+    )
+    record_llm_call(
+        db, trace_id="t", session_id="s", source="tirzah",
+        emit_event=False,
+    )
+    cov = {r["source"]: r for r in llm_instrumentation_coverage(db)}
+    assert cov["hoglah"]["calls"] == 2
+    assert cov["hoglah"]["with_usage"] == 1
+    assert cov["hoglah"]["with_duration"] == 1
+    assert cov["hoglah"]["usage_rate"] == 0.5
+    assert cov["tirzah"]["calls"] == 1
+    assert cov["tirzah"]["with_usage"] == 0
+    assert cov["tirzah"]["usage_rate"] == 0.0

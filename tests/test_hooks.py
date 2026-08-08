@@ -53,3 +53,16 @@ def test_codex_hook_graceful_no_payload(monkeypatch):
     # Should not crash
     code = codex_hook(["galeed-codex-hook", "Stop"])
     assert code == 0
+
+
+def test_hook_skips_probe_when_breadcrumb_fresh(monkeypatch, tmp_path):
+    """Review H2: unreachable breadcrumb avoids re-paying the timeout."""
+    import galeed.hooks as hooks
+
+    crumb = tmp_path / "mongo-unreachable"
+    crumb.write_text("1", encoding="utf-8")
+    monkeypatch.setattr(hooks, "_UNREACHABLE_BREADCRUMB", crumb)
+    monkeypatch.setattr(hooks, "_UNREACHABLE_TTL_S", 3600.0)
+    # Would hang/fail if it tried to connect to a real host.
+    client, db = hooks._get_client_and_db()
+    assert client is None and db is None

@@ -33,7 +33,8 @@ import sys
 import time
 from typing import Any
 
-from galeed.llm_calls import call_tree, list_llm_calls
+from galeed.bus import get_bus
+from galeed.llm_calls import call_tree, list_llm_calls, llm_instrumentation_coverage
 from galeed.recorder import ensure_indexes, list_trace_events, list_trace_sessions
 
 DEFAULT_MONGO_URI = os.environ.get("GALEED_MONGO_URI", "mongodb://localhost:27017")
@@ -41,16 +42,31 @@ DEFAULT_MONGO_DB = os.environ.get("GALEED_MONGO_DB", "mnemosyne_dev")
 
 _STATUS_GLYPH = {"completed": "[green]●[/green]", "failed": "[red]✖[/red]"}
 
+# Keep a reference so short-lived CLI commands can close the client (review M4).
+_OPEN_CLIENT: Any = None
+
 
 def _database(args: argparse.Namespace) -> Any:
+    global _OPEN_CLIENT
     try:
         from pymongo import MongoClient
     except ImportError:
         _die("pymongo is required — install the cli extra:  pip install galeed[cli]")
     client = MongoClient(args.mongo_uri, serverSelectionTimeoutMS=3000)
+    _OPEN_CLIENT = client
     db = client[args.mongo_db]
     ensure_indexes(db)
     return db
+
+
+def _close_database() -> None:
+    global _OPEN_CLIENT
+    if _OPEN_CLIENT is not None:
+        try:
+            _OPEN_CLIENT.close()
+        except Exception:
+            pass
+        _OPEN_CLIENT = None
 
 
 def _console():
@@ -196,8 +212,14 @@ def cmd_trace(args: argparse.Namespace) -> int:
 def cmd_sessions(args: argparse.Namespace) -> int:
     db = _database(args)
     sessions = list_trace_sessions(db, limit=args.limit)
+    coverage = llm_instrumentation_coverage(db)
+    dropped = get_bus().dropped
     if args.json:
-        print(json.dumps(sessions, indent=2, default=str))
+        print(json.dumps({
+            "sessions": sessions,
+            "instrumentation": coverage,
+            "bus_dropped": dropped,
+        }, indent=2, default=str))
         return 0
     console = _console()
     from rich.table import Table
@@ -212,6 +234,28 @@ def cmd_sessions(args: argparse.Namespace) -> int:
             str(s.get("updated_at") or ""), (s.get("first_query") or "")[:60],
         )
     console.print(table)
+    # H3: instrumentation coverage — the surface that makes F2 visible.
+    if coverage:
+        cov = Table(title="LLM call instrumentation (per source)", header_style="bold")
+        for column in ("source", "calls", "with usage", "with duration", "usage %", "duration %"):
+            cov.add_column(column)
+        for row in coverage:
+            cov.add_row(
+                row["source"],
+                str(row["calls"]),
+                str(row["with_usage"]),
+                str(row["with_duration"]),
+                f"{row['usage_rate']:.0%}",
+                f"{row['duration_rate']:.0%}",
+            )
+        console.print(cov)
+    else:
+        console.print("[dim]LLM call instrumentation: no llm_calls yet[/dim]")
+    if dropped:
+        console.print(
+            f"[yellow]TraceBus dropped {dropped} event(s) "
+            f"(slow SSE/subscriber — stream has holes)[/yellow]"
+        )
     return 0
 
 
@@ -306,7 +350,10 @@ def main(argv: list[str] | None = None) -> int:
     if getattr(args, "func", None) is None:
         parser.print_help()
         return 0
-    return args.func(args)
+    try:
+        return args.func(args)
+    finally:
+        _close_database()
 
 
 if __name__ == "__main__":  # pragma: no cover

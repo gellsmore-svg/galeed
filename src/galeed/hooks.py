@@ -24,6 +24,8 @@ from __future__ import annotations
 import json
 import os
 import sys
+import time
+from pathlib import Path
 from typing import Any
 
 from galeed.events import TraceEvent, new_trace_id
@@ -35,21 +37,78 @@ DEFAULT_MONGO_DB = os.environ.get("GALEED_MONGO_DB", "mnemosyne_dev")
 
 TRACE_EVENTS_COLLECTION = "trace_events"
 
+# Hook path: fail fast. Local Mongo answers in single-digit ms; 2 s per hook
+# invocation (review F3/H2) is blocking in practice when the host is down.
+_HOOK_SERVER_SELECTION_MS = 250
+# Cross-process breadcrumb so subsequent hook processes skip the probe for a
+# short window rather than each re-paying the timeout (each hook is a fresh
+# process — nothing learns Mongo is down without this).
+_UNREACHABLE_BREADCRUMB = Path.home() / ".galeed" / "mongo-unreachable"
+_UNREACHABLE_TTL_S = 60.0
 
-def _get_db():
-    """Best-effort Mongo connection. Returns None if pymongo unavailable or
-    connection fails (hooks must be best-effort and never block the agent)."""
+
+def _mongo_recently_unreachable() -> bool:
+    try:
+        if not _UNREACHABLE_BREADCRUMB.is_file():
+            return False
+        age = time.time() - _UNREACHABLE_BREADCRUMB.stat().st_mtime
+        return age < _UNREACHABLE_TTL_S
+    except OSError:
+        return False
+
+
+def _mark_mongo_unreachable() -> None:
+    try:
+        _UNREACHABLE_BREADCRUMB.parent.mkdir(parents=True, exist_ok=True)
+        _UNREACHABLE_BREADCRUMB.write_text(str(time.time()), encoding="utf-8")
+    except OSError:
+        pass
+
+
+def _clear_mongo_unreachable() -> None:
+    try:
+        if _UNREACHABLE_BREADCRUMB.is_file():
+            _UNREACHABLE_BREADCRUMB.unlink()
+    except OSError:
+        pass
+
+
+def _get_client_and_db():
+    """Best-effort Mongo connection for hooks.
+
+    Returns ``(client, db)`` or ``(None, None)``. Client must be closed by the
+    caller (review M4). Short selection timeout + unreachable breadcrumb so a
+    down Mongo does not add ~2 s per hook invocation (review H2/F3).
+    """
+    if _mongo_recently_unreachable():
+        return None, None
     try:
         from pymongo import MongoClient  # type: ignore
 
         uri = DEFAULT_MONGO_URI
         db_name = DEFAULT_MONGO_DB
-        client = MongoClient(uri, serverSelectionTimeoutMS=2000)
-        client.admin.command("ping")  # quick check
-        return client[db_name]
+        client = MongoClient(uri, serverSelectionTimeoutMS=_HOOK_SERVER_SELECTION_MS)
+        client.admin.command("ping")
+        _clear_mongo_unreachable()
+        return client, client[db_name]
     except Exception:
-        # pymongo not installed, no mongo, or unreachable — silently skip
-        return None
+        _mark_mongo_unreachable()
+        return None, None
+
+
+def _get_db():
+    """Best-effort Mongo connection. Returns None if unavailable.
+
+    Prefer :func:`_get_client_and_db` when you can close the client. This
+    helper is kept for tests and simple callers; the client is not retained.
+    """
+    client, db = _get_client_and_db()
+    if client is not None and db is None:
+        try:
+            client.close()
+        except Exception:
+            pass
+    return db
 
 
 def _emit_event(
@@ -63,7 +122,7 @@ def _emit_event(
     **metadata: Any,
 ) -> None:
     """Create and record a TraceEvent (best effort)."""
-    db = _get_db()
+    client, db = _get_client_and_db()
     event = TraceEvent(
         trace_id=trace_id,
         session_id=session_id,
@@ -77,6 +136,12 @@ def _emit_event(
         record_event(db, event)
     except Exception:
         pass  # never let hook failures affect the coding agent
+    finally:
+        if client is not None:
+            try:
+                client.close()
+            except Exception:
+                pass
 
 
 def _load_payload() -> dict[str, Any]:

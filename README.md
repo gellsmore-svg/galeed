@@ -81,6 +81,16 @@ need no bump). For cross-repo joins, populate the standard `CORRELATION_KEYS`
 (`request_id`, `session_id`, `trace_id`, `plan_id`, `job_id`) — `galeed.correlation_ids(event)`
 reads them back from fields + metadata so a trace can be stitched across projects.
 
+## Review
+
+A point-in-time functional + code review of 0.3.x is in
+[`docs/review-2026-08-08.md`](docs/review-2026-08-08.md); findings actioned in
+**0.4.0** (unpriced models → `None` cost, instrumentation coverage in
+`galeed sessions`, faster hook Mongo probe, bus drop counter, canonical usage).
+
+**Note (F2):** Tirzah still writes many `llm_calls` without usage/duration —
+that fix belongs in Tirzah. `galeed sessions` now makes the gap visible.
+
 ## Develop
 
 Works the same on native Linux and WSL — stdlib-only, no platform-specific steps.

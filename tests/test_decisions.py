@@ -55,3 +55,23 @@ def test_record_negotiation_started_and_finished() -> None:
     types = [e.type for e in tracer.events]
     assert EventType.NEGOTIATION_STARTED in types
     assert EventType.NEGOTIATION_FINISHED in types
+
+
+def test_record_negotiation_post_retrieve_note() -> None:
+    tracer = Tracer(trace_id="t4", session_id="s4", db=None, source="deborah")
+    record_negotiation(
+        tracer=tracer,
+        phase="finished",
+        status="partial",
+        note="post_retrieve",
+        rounds_used=1,
+        max_rounds=1,
+        plan_id="p",
+        metadata={"evidence_count": 0, "novel_detected": True},
+    )
+    ev = tracer.events[-1]
+    assert ev.type == EventType.NEGOTIATION_FINISHED
+    assert ev.metadata.get("note") == "post_retrieve"
+    assert ev.metadata.get("negotiation_phase") == "post_retrieve"
+    assert ev.metadata.get("evidence_count") == 0
+    assert "post_retrieve" in ev.summary
