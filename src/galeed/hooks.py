@@ -91,6 +91,14 @@ def _get_client_and_db():
         client.admin.command("ping")
         _clear_mongo_unreachable()
         return client, client[db_name]
+    except ImportError:
+        print(
+            "galeed-codex-hook: pymongo is not installed; traces are not recorded. "
+            "pip install 'galeed[cli]'",
+            file=sys.stderr,
+        )
+        _mark_mongo_unreachable()
+        return None, None
     except Exception:
         _mark_mongo_unreachable()
         return None, None

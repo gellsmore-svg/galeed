@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [0.4.1] — 2026-08-21
+
+### Fixed
+- ``galeed-codex-hook`` prints an install hint on stderr when pymongo is
+  missing (still exits 0 so Codex is not blocked).
+
 ## [0.4.0] — 2026-08-08
 
 Review action for `docs/review-2026-08-08.md` (0.3.x baseline).
