@@ -1,117 +1,99 @@
 # Galeed
 
-**The cross-project trace/log spine — "heap of witness" (Genesis 31:48).**
+**Galeed records what your LLM system did, step by step, separately from the
+answer it gave.** Each request gets a trace of structured events (retrieval
+ran, the planner chose X, the critic rejected Y), and each model call gets one
+record holding its complete prompt and complete output. When an answer is
+wrong, you can see why.
 
-Galeed is the family's shared *logging capability*: a structured event stream that
-separates **process telemetry** (what the system did, step by step) from the
-**final output** (the answer). It is intentionally dependency-free (pure stdlib) so
-any project can adopt it.
+The core is pure Python stdlib, so any project can adopt it. Its companion
+**[Mizpah](https://github.com/gellsmore-svg/Mizpah)** is the browser that
+views what Galeed records. The names come from Genesis 31:48: one memorial
+heap called *Galeed* ("heap of witness") and *Mizpah* ("watchtower"). Galeed
+records; Mizpah views.
 
-In Genesis 31, Laban and Jacob raise one memorial heap and give it two names —
-**Galeed** ("heap of witness", the record itself) and **Mizpah** ("watchtower",
-the one who watches over it). The family keeps the pair: **Galeed records; Mizpah
-views.**
+## Is it for you?
 
-## What it provides
+**Good fit:** you build multi-step or recursive LLM flows (agents, retrieval,
+debate, pipelines) and need to replay exactly what each step saw and produced,
+or stitch one trace across several services.
 
-- **`events`** — a structured event vocabulary (`EventType`, `TraceEvent`, stable
-  ids). Self-contained and extensible.
-- **`recorder`** — `Tracer`: created once per request/operation; emits events,
-  persists them, and exposes query helpers.
-- **`bus`** — a process-wide in-process pub/sub (`TraceBus`) for live streaming
-  (e.g. SSE to a process panel or a dev-log window).
-- **`feedback`** — lightweight feedback events tied to a trace.
-- **`cairn`** — `emit_cairn_observation(...)`, a tiny bridge for events that
-  **Huldah** can analyse as human-load and agent-effectiveness evidence. The
-  module and `cairn_kind` key keep the Cairn name: it is the observation
-  *format*, not the analyser (which was renamed in the Deborah/Huldah split).
-- **`llm_calls`** — the **LLM debugging layer**: one document per model call with
-  the COMPLETE input (prompt or messages list) and COMPLETE output, a human
-  `step_name`, and `parent_call_id` chains for recursive flows. Spine events stay
-  lean; the heavy payloads live here. Wrap direct calls with
-  `capture_llm_call(...)`; Hoglah records every job automatically.
+**Not a fit:** you want a hosted observability product, metrics dashboards, or
+general application logging. Galeed stores traces in your own MongoDB and is
+built for debugging LLM flows.
 
-```python
-from galeed import Tracer, EventType, get_bus, record_llm_call, capture_llm_call
-from galeed import emit_cairn_observation
-```
-
-## Viewers
-
-- **`galeed trace`** (CLI, `pip install galeed[cli]`) — the clean In→Out call
-  tree for every source: chains nested, `--verbose` for the technical layer,
-  filters (`--session/--trace/--source/--step/--call/--status/--since`),
-  `--follow` live tail, `--json` export (works without the extra).
-- **`galeed sessions` / `galeed events`** — spine summaries and raw events.
-- **`galeed serve`** (`pip install galeed[web]`, default port 8785) — the HTTP
-  trace API browser viewers read: Tirzah-compatible `/api/trace/*` shapes,
-  `/api/llm-calls`, and an SSE tail. **Mizpah** points here by default.
-
-Connection: `--mongo-uri/--mongo-db` or `GALEED_MONGO_URI` / `GALEED_MONGO_DB`
-(default `mongodb://localhost:27017` / `mnemosyne_dev`).
-
-## Who emits into it
-
-Any family project — Tirzah, Mahalath, Hoglah, Deborah, Huldah, Milcah — emits its process
-telemetry through Galeed. **Mizpah** is the viewer over what Galeed records.
-
-When a product wants Huldah to read an event as human-facing observation
-evidence, emit it through the Cairn-format bridge:
-
-```python
-emit_cairn_observation(
-    tracer,
-    kind="agent_output",
-    message="Generated recommendation without authority citation.",
-    tags=["missing_evidence"],
-    human_systems=["trust calibration", "uncertainty management"],
-    duration_ms=4200,
-)
-```
-
-This stores a normal Galeed trace event with `metadata.cairn_kind`, `tags`,
-`human_systems`, `duration_ms`, and the standard correlation ids already carried
-by the tracer.
-
-## Schema discipline
-
-Events carry a `schema_version` (`galeed.SCHEMA_VERSION`); bump it only on a
-backwards-incompatible change to the event shape (new event *types* are additive and
-need no bump). For cross-repo joins, populate the standard `CORRELATION_KEYS`
-(`request_id`, `session_id`, `trace_id`, `plan_id`, `job_id`) — `galeed.correlation_ids(event)`
-reads them back from fields + metadata so a trace can be stitched across projects.
-
-## Review
-
-A point-in-time functional + code review of 0.3.x is in
-[`docs/review-2026-08-08.md`](docs/review-2026-08-08.md); findings actioned in
-**0.4.0** (unpriced models → `None` cost, instrumentation coverage in
-`galeed sessions`, faster hook Mongo probe, bus drop counter, canonical usage).
-
-**Note (F2):** Tirzah still writes many `llm_calls` without usage/duration —
-that fix belongs in Tirzah. `galeed sessions` now makes the gap visible.
-
-## Develop
-
-Works the same on native Linux and WSL — stdlib-only, no platform-specific steps.
+## Try it
 
 ```bash
-pip install -e ".[dev]"   # pytest lives in the dev extra
-pytest
+pip install "galeed[cli]"          # core + the `galeed` CLI (adds rich, pymongo)
 ```
 
-## Hook bridges for coding agents
+```python
+from pymongo import MongoClient
+from galeed import Tracer, EventType, capture_llm_call
 
-Galeed includes bridges so external coding agents (Codex CLI, Claude Code, Cursor)
-can stream their lifecycle into the family trace spine.
+db = MongoClient()["mnemosyne_dev"]          # the CLI's default database
+t = Tracer(session_id="demo", source="my-app", db=db)
 
-Install the hook command (requires the cli extra for Mongo):
+t.emit(EventType.PROCESS_STARTED, summary="answer a question")
+with capture_llm_call(db, trace_id=t.trace_id, session_id="demo",
+                      source="my-app", step_name="draft", prompt="Hi") as call:
+    call.output = my_model("Hi")             # your model call
+t.emit(EventType.PROCESS_COMPLETED)
+```
 
 ```bash
-pip install "galeed[cli]"
+galeed trace --session demo        # the In→Out call tree; --verbose for timings and metadata
 ```
 
-Example Codex config (`~/.codex/config.toml`):
+Point anything at another store with `GALEED_MONGO_URI` / `GALEED_MONGO_DB`
+(defaults: `mongodb://localhost:27017` / `mnemosyne_dev`).
+
+## How it works
+
+There are two layers, so traces stay light while full detail stays available:
+
+- **Spine events** (`trace_events`) are small, ordered, typed records:
+  `process.started`, a retrieval step, a decision. A `Tracer` is created once
+  per request or operation and stamps every event with the trace, session and
+  request ids.
+- **LLM call records** (`llm_calls`) hold the heavy payloads: the complete
+  prompt or messages, the complete output, a human `step_name`, usage and
+  duration, and a `parent_call_id` so recursive flows form a tree.
+
+**Tracing never breaks your application.** Persistence is best effort: a store
+failure is swallowed and logged at DEBUG, and `db=None` keeps events in memory
+only. Events also go to an in-process bus (`get_bus()`) for live streaming,
+such as SSE to a process panel.
+
+## What's in the box
+
+| Module | Purpose |
+|---|---|
+| `events` | The event vocabulary (`EventType`, `TraceEvent`), extensible |
+| `recorder` | `Tracer` plus query helpers over stored traces |
+| `llm_calls` | `capture_llm_call(...)` / `record_llm_call(...)` for full model-call I/O |
+| `bus` | Process-wide pub/sub (`TraceBus`) for live tails |
+| `decisions` | Events recording *why* a run chose accept / reject / open |
+| `feedback` | Lightweight feedback events tied to a trace |
+| `cairn` | `emit_cairn_observation(...)`: events that [Huldah](https://github.com/gellsmore-svg/Huldah) can analyse as human-load and agent-effectiveness evidence |
+| `hooks` | `galeed-codex-hook`, which streams a coding agent's lifecycle into the spine |
+
+## Viewing traces
+
+- `galeed trace`: call trees for every source. Filter with
+  `--session/--trace/--source/--step/--call/--status/--since`, tail live with
+  `--follow`, export with `--json` (which works without the `cli` extra).
+- `galeed sessions` / `galeed events`: session summaries, including which
+  calls lack usage or duration data, and raw events.
+- `galeed serve` (`pip install "galeed[web]"`, port 8785): the HTTP trace API
+  that browser viewers read. [Mizpah](https://github.com/gellsmore-svg/Mizpah)
+  points here by default.
+
+## Tracing a coding agent
+
+`galeed-codex-hook` maps **Codex CLI** lifecycle hooks into Galeed events
+(`source="codex"`). In `~/.codex/config.toml`:
 
 ```toml
 [hooks]
@@ -121,9 +103,31 @@ PostToolUse  = ["galeed-codex-hook", "PostToolUse"]
 Stop         = ["galeed-codex-hook", "Stop"]
 ```
 
-The handler reads JSON from stdin (Codex hook payload) and emits events with
-`source="codex"` (types like `codex.sessionstart`, `codex.posttooluse`,
-`codex.tool.started`, etc.). Use the same `GALEED_MONGO_*` env vars.
+The handler reads the hook payload as JSON on stdin and uses the same
+`GALEED_MONGO_*` variables. Other agents with command hooks can call it too,
+but only the Codex payload shape is mapped today. Rollout plan:
+[Noa codex-integration-plan](https://github.com/gellsmore-svg/Noa/blob/main/docs/codex-integration-plan.md).
 
-See the integration plan in the Noa docs for full context and phased rollout
-(Phase 0 is a minimal trace spike using a single `PostToolUse` hook).
+## Joining traces across projects
+
+Populate the standard `CORRELATION_KEYS` (`request_id`, `session_id`,
+`trace_id`, `plan_id`, `job_id`). `galeed.correlation_ids(event)` reads them
+back from fields and metadata, so one trace can be stitched across services.
+Hoglah, Tirzah, Mahalath, Deborah, Huldah and Milcah all emit into the same
+spine this way.
+
+Events carry `schema_version` (`galeed.SCHEMA_VERSION`). It is bumped only for
+a backwards-incompatible change to the event shape; new event types are
+additive.
+
+## Develop
+
+Stdlib-only, so it behaves the same on Linux and WSL.
+
+```bash
+pip install -e ".[dev]"
+pytest
+```
+
+[CHANGELOG](CHANGELOG.md) · [2026-08-08 review](docs/review-2026-08-08.md) ·
+[SECURITY](SECURITY.md) · Apache 2.0, see [LICENSE](LICENSE).
